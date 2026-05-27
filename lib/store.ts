@@ -6,6 +6,8 @@ import type {
   AppSettings, AIAdvisorData, ChatMessage
 } from './types';
 
+export type QueueSort = 'none' | 'artist' | 'track';
+
 interface AppState {
   // Screens
   activeScreen: ActiveScreen;
@@ -34,6 +36,7 @@ interface AppState {
 
   // UI
   queueTab: QueueTab;
+  queueSort: QueueSort;
   isCurating: boolean;
   curationError: string | null;
   resolveMessage: string;
@@ -62,6 +65,7 @@ interface AppState {
   addToQueue: (t: CuratedTrack) => void;
   removeFromQueue: (index: number) => void;
   reorderQueue: (from: number, to: number) => void;
+  sortQueueBy: (by: 'artist' | 'track') => void;
   setLibraryPlaylist: (t: CuratedTrack[]) => void;
   setPlayedTracks: (t: CuratedTrack[]) => void;
   setSkippedTracks: (t: CuratedTrack[]) => void;
@@ -83,6 +87,7 @@ interface AppState {
 
   // Actions — UI
   setQueueTab: (t: QueueTab) => void;
+  setQueueSort: (s: QueueSort) => void;
   setIsCurating: (v: boolean) => void;
   setCurationError: (e: string | null) => void;
   setResolveMessage: (m: string) => void;
@@ -116,6 +121,13 @@ function makeTrackId(track: CuratedTrack): string {
   return `${track.artist}__${track.track}`.toLowerCase().replace(/\s+/g, '_');
 }
 
+/** Deduplicated prepend for history/played/skipped lists (max 50 entries). */
+function prependUnique(list: CuratedTrack[], track: CuratedTrack): CuratedTrack[] {
+  return [track, ...list.filter(
+    (t) => !(t.artist === track.artist && t.track === track.track)
+  )].slice(0, 50);
+}
+
 export const useAppStore = create<AppState>()(
   subscribeWithSelector((set, get) => ({
     // Initial state
@@ -138,6 +150,7 @@ export const useAppStore = create<AppState>()(
     duration: 0,
     isMuted: false,
     queueTab: 'queue',
+    queueSort: 'none',
     isCurating: false,
     curationError: null,
     resolveMessage: '',
@@ -158,13 +171,44 @@ export const useAppStore = create<AppState>()(
     setCuratedTracks: (t) => set({ curatedTracks: t }),
     setCurrentPrompt: (p) => set({ currentPrompt: p }),
     setQueue: (q) => set({ queue: q }),
-    addToQueue: (t) => set((s) => ({ queue: [...s.queue, t] })),
-    removeFromQueue: (index) => set((s) => ({ queue: s.queue.filter((_, i) => i !== index) })),
+    addToQueue: (t) => set((s) => ({ queue: [...s.queue, { ...t, status: 'idle' as const }] })),
+    removeFromQueue: (index) => set((s) => {
+      const updated = s.queue.filter((_, i) => i !== index);
+      // Adjust active index if queue is active source
+      if (s.activeSource === 'queue') {
+        if (index < s.activeIndex) return { queue: updated, activeIndex: s.activeIndex - 1 };
+        if (index === s.activeIndex) return { queue: updated, isPlaying: false, activeIndex: -1 };
+      }
+      return { queue: updated };
+    }),
     reorderQueue: (from, to) => set((s) => {
       const q = [...s.queue];
       const [item] = q.splice(from, 1);
       q.splice(to, 0, item);
+      // Adjust active index for queue source
+      if (s.activeSource === 'queue') {
+        let ai = s.activeIndex;
+        if (from === ai) ai = to;
+        else if (from < ai && to >= ai) ai -= 1;
+        else if (from > ai && to <= ai) ai += 1;
+        return { queue: q, activeIndex: ai };
+      }
       return { queue: q };
+    }),
+    sortQueueBy: (by) => set((s) => {
+      const newSort: QueueSort = s.queueSort === by ? 'none' : by;
+      if (newSort === 'none') return { queueSort: newSort };
+      const activeId = s.activeSource === 'queue' && s.activeIndex >= 0
+        ? `${s.queue[s.activeIndex]?.artist}::${s.queue[s.activeIndex]?.track}` : '';
+      const sorted = [...s.queue].sort((a, b) =>
+        by === 'artist' ? a.artist.localeCompare(b.artist) : a.track.localeCompare(b.track)
+      );
+      let newActiveIndex = s.activeIndex;
+      if (activeId) {
+        const found = sorted.findIndex((t) => `${t.artist}::${t.track}` === activeId);
+        if (found !== -1) newActiveIndex = found;
+      }
+      return { queue: sorted, queueSort: newSort, activeIndex: newActiveIndex };
     }),
     setLibraryPlaylist: (t) => set({ libraryPlaylist: t }),
     setPlayedTracks: (t) => set({ playedTracks: t }),
@@ -190,22 +234,25 @@ export const useAppStore = create<AppState>()(
     setIsMuted: (v) => set({ isMuted: v }),
 
     playTrack: (source, index) => {
-      const s = get();
-      const tracks = s.getSourceTracks(source);
+      const tracks = get().getSourceTracks(source);
       const track = tracks[index];
       if (!track) return;
       set({ activeSource: source, activeIndex: index, isPlaying: true, currentTime: 0 });
-      // Add to history
-      if (track.status === 'ready') {
-        get().addToHistory(track);
-      }
+      if (track.status === 'ready') get().addToHistory(track);
     },
 
     playNext: () => {
       const s = get();
       if (!s.activeSource) return;
       const tracks = s.getSourceTracks(s.activeSource);
-      const nextIndex = s.activeIndex + 1;
+      // Add current to played
+      const current = tracks[s.activeIndex];
+      if (current) {
+        set((state) => ({ playedTracks: prependUnique(state.playedTracks, current) }));
+      }
+      const nextIndex = s.isShuffled
+        ? Math.floor(Math.random() * tracks.length)
+        : s.activeIndex + 1;
       if (nextIndex < tracks.length) {
         set({ activeIndex: nextIndex, isPlaying: true, currentTime: 0 });
         const track = tracks[nextIndex];
@@ -229,14 +276,25 @@ export const useAppStore = create<AppState>()(
       if (!s.activeSource) return;
       const tracks = s.getSourceTracks(s.activeSource);
       const current = tracks[s.activeIndex];
+      // Add current to skipped
       if (current) {
-        set((state) => ({ skippedTracks: [...state.skippedTracks, current] }));
+        set((state) => ({ skippedTracks: prependUnique(state.skippedTracks, current) }));
       }
-      get().playNext();
+      const nextIndex = s.isShuffled
+        ? Math.floor(Math.random() * tracks.length)
+        : s.activeIndex + 1;
+      if (nextIndex < tracks.length) {
+        set({ activeIndex: nextIndex, isPlaying: true, currentTime: 0 });
+        const track = tracks[nextIndex];
+        if (track?.status === 'ready') get().addToHistory(track);
+      } else {
+        set({ isPlaying: false });
+      }
     },
 
     // UI
     setQueueTab: (t) => set({ queueTab: t }),
+    setQueueSort: (s) => set({ queueSort: s }),
     setIsCurating: (v) => set({ isCurating: v }),
     setCurationError: (e) => set({ curationError: e }),
     setResolveMessage: (m) => set({ resolveMessage: m }),
@@ -267,7 +325,6 @@ export const useAppStore = create<AppState>()(
           },
         };
       });
-      // Sync to DB
       fetch('/api/library/liked', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

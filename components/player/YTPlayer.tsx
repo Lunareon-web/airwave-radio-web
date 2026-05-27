@@ -3,72 +3,30 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '@/lib/store';
 
+// Module-level ref so NowPlaying can seek without prop drilling
+export const ytCommand: { send: ((func: string, args?: unknown[]) => void) | null } = { send: null };
+
 interface YTPlayerProps {
   onReady?: () => void;
 }
 
 export function YTPlayer({ onReady }: YTPlayerProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const ytReadyRef = useRef(false);
   const {
     activeSource, activeIndex, isPlaying, volume, isMuted,
     setIsPlaying, setCurrentTime, setDuration, playNext,
-    getCurrentTrack, settings, getSourceTracks,
+    getCurrentTrack, settings, getSourceTracks, updateTrackInSource,
+    setResolveMessage,
   } = useAppStore();
 
   const currentTrack = getCurrentTrack();
   const videoId = currentTrack?.videoId;
   const isVideoMode = settings.playbackMode === 'video';
 
-  // Build YouTube embed URL
   const embedUrl = videoId
-    ? `https://www.youtube.com/embed/${videoId}?enablejsapi=1&autoplay=${isPlaying ? 1 : 0}&controls=${isVideoMode ? 1 : 0}&rel=0&modestbranding=1&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`
+    ? `https://www.youtube.com/embed/${videoId}?enablejsapi=1&autoplay=1&controls=${isVideoMode ? 1 : 0}&rel=0&modestbranding=1&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`
     : null;
-
-  // Listen for messages from the YT iframe
-  const handleMessage = useCallback((event: MessageEvent) => {
-    if (!event.data || typeof event.data !== 'string') return;
-    let data: { event?: string; info?: Record<string, unknown> };
-    try {
-      data = JSON.parse(event.data);
-    } catch {
-      return;
-    }
-    if (data.event === 'initialDelivery' || data.event === 'infoDelivery') {
-      const info = data.info || {};
-      if (typeof info.currentTime === 'number') {
-        setCurrentTime(info.currentTime as number);
-      }
-      if (typeof info.duration === 'number') {
-        setDuration(info.duration as number);
-      }
-      if (typeof info.playerState === 'number') {
-        const state = info.playerState as number;
-        const currentTime = (info.currentTime as number) || 0;
-        const duration = (info.duration as number) || 0;
-        if (state === 1) {
-          setIsPlaying(true);
-        } else if (state === 2) {
-          // Near-end fix: if paused within 2s of end, treat as ended
-          if (duration > 0 && duration - currentTime <= 2) {
-            playNext();
-          } else {
-            setIsPlaying(false);
-          }
-        } else if (state === 0) {
-          // Ended
-          playNext();
-        }
-      }
-      if (onReady && info.currentTime !== undefined) {
-        onReady();
-      }
-    }
-  }, [setCurrentTime, setDuration, setIsPlaying, playNext, onReady]);
-
-  useEffect(() => {
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [handleMessage]);
 
   // Send commands to iframe
   const sendCommand = useCallback((func: string, args?: unknown[]) => {
@@ -79,57 +37,127 @@ export function YTPlayer({ onReady }: YTPlayerProps) {
     );
   }, []);
 
-  // Play/pause control
+  // Register for external use (seek from NowPlaying)
+  useEffect(() => {
+    ytCommand.send = sendCommand;
+    return () => { ytCommand.send = null; };
+  }, [sendCommand]);
+
+  // Listen for messages from the YT iframe
+  const handleMessage = useCallback((event: MessageEvent) => {
+    if (!iframeRef.current?.contentWindow) return;
+    if (event.source !== iframeRef.current.contentWindow) return;
+    if (!event.data || typeof event.data !== 'string') return;
+    let data: { event?: string; info?: Record<string, unknown> };
+    try { data = JSON.parse(event.data); } catch { return; }
+
+    if (data.event === 'initialDelivery' || data.event === 'infoDelivery') {
+      const info = data.info || {};
+      if (typeof info.currentTime === 'number') setCurrentTime(info.currentTime as number);
+      if (typeof info.duration === 'number' && (info.duration as number) > 0) setDuration(info.duration as number);
+
+      if (typeof info.playerState === 'number') {
+        const state = info.playerState as number;
+        const ct = (info.currentTime as number) || 0;
+        const dur = (info.duration as number) || 0;
+
+        if (state === 1) {
+          ytReadyRef.current = true;
+          setIsPlaying(true);
+          if (onReady) onReady();
+        } else if (state === 2) {
+          // Near-end: YT fires pause ~1s before end → treat as ended
+          if (dur > 0 && dur - ct <= 2) {
+            playNext();
+          } else if (!useAppStore.getState().isPlaying) {
+            setIsPlaying(false);
+          }
+        } else if (state === 0) {
+          playNext();
+        }
+      }
+    }
+  }, [setCurrentTime, setDuration, setIsPlaying, playNext, onReady]);
+
+  useEffect(() => {
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [handleMessage]);
+
+  // Play/pause
   useEffect(() => {
     if (!videoId) return;
-    if (isPlaying) {
-      sendCommand('playVideo');
-    } else {
-      sendCommand('pauseVideo');
-    }
+    if (isPlaying) sendCommand('playVideo');
+    else sendCommand('pauseVideo');
   }, [isPlaying, videoId, sendCommand]);
 
-  // Volume control
+  // Volume
   useEffect(() => {
     if (!videoId) return;
     const vol = isMuted ? 0 : Math.round(volume * 100);
-    sendCommand('setVolume', [vol]);
+    if (isMuted) sendCommand('mute');
+    else { sendCommand('unMute'); sendCommand('setVolume', [vol]); }
   }, [volume, isMuted, videoId, sendCommand]);
 
-  // Auto-resolve video IDs for tracks that don't have one yet
+  // Auto-resolve video IDs for current + next 3 tracks
   useEffect(() => {
     if (!activeSource || activeIndex < 0) return;
     const tracks = getSourceTracks(activeSource);
-    const updateTrackInSource = useAppStore.getState().updateTrackInSource;
-    const settings = useAppStore.getState().settings;
+    const storeSettings = useAppStore.getState().settings;
 
-    // Resolve current + next 3 tracks
     for (let i = activeIndex; i < Math.min(activeIndex + 4, tracks.length); i++) {
       const track = tracks[i];
-      if (track && track.status === 'idle') {
-        updateTrackInSource(activeSource, i, { status: 'searching' });
-        const query = track.search_term || `${track.artist} ${track.track} official`;
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (settings.youtubeKey) headers['X-YouTube-Key'] = settings.youtubeKey;
-        fetch(`/api/youtube/search?q=${encodeURIComponent(query)}`, { headers })
-          .then((r) => r.json())
-          .then((data) => {
-            if (data.videoId) {
-              updateTrackInSource(activeSource, i, {
-                status: 'ready',
-                videoId: data.videoId,
-                coverArt: data.thumbnail,
-                resolvedTitle: data.title,
-              });
-            } else {
-              updateTrackInSource(activeSource, i, { status: 'failed' });
+      if (!track || track.status !== 'idle') continue;
+      updateTrackInSource(activeSource, i, { status: 'searching' });
+      if (i === activeIndex) setResolveMessage(`Searching: ${track.track}…`);
+
+      const query = track.search_term || `${track.artist} ${track.track} official audio`;
+      const headers: Record<string, string> = {};
+      if (storeSettings.youtubeKey) headers['X-YouTube-Key'] = storeSettings.youtubeKey;
+
+      fetch(`/api/youtube/search?q=${encodeURIComponent(query)}`, { headers })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.videoId) {
+            updateTrackInSource(activeSource, i, {
+              status: 'ready',
+              videoId: data.videoId,
+              coverArt: data.thumbnail || `https://i.ytimg.com/vi/${data.videoId}/hqdefault.jpg`,
+              resolvedTitle: data.title,
+            });
+            if (i === activeIndex) setResolveMessage(`▶ ${data.title || track.track}`);
+          } else {
+            updateTrackInSource(activeSource, i, { status: 'failed' });
+            if (i === activeIndex) {
+              setResolveMessage('Not found — skipping…');
+              setTimeout(() => {
+                if (useAppStore.getState().activeIndex === i) playNext();
+              }, 1800);
             }
-          })
-          .catch(() => updateTrackInSource(activeSource, i, { status: 'failed' }));
-      }
+          }
+        })
+        .catch(() => {
+          updateTrackInSource(activeSource, i, { status: 'failed' });
+          if (i === activeIndex) setResolveMessage('Search error — skipping…');
+        });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSource, activeIndex]);
+
+  // Second play attempt after 2.5s if not yet playing (slow YT API init)
+  useEffect(() => {
+    if (!videoId) return;
+    ytReadyRef.current = false;
+    const t1 = setTimeout(() => {
+      sendCommand('playVideo');
+      sendCommand('setVolume', [isMuted ? 0 : Math.round(volume * 100)]);
+    }, 600);
+    const t2 = setTimeout(() => {
+      if (!ytReadyRef.current) sendCommand('playVideo');
+    }, 2500);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoId]);
 
   if (!embedUrl) return null;
 
@@ -149,22 +177,13 @@ export function YTPlayer({ onReady }: YTPlayerProps) {
     );
   }
 
-  // Audio mode: hidden iframe
   return (
     <iframe
       ref={iframeRef}
       key={videoId}
       src={embedUrl}
       allow="autoplay; encrypted-media"
-      style={{
-        position: 'fixed',
-        top: '-9999px',
-        left: '-9999px',
-        width: 1,
-        height: 1,
-        opacity: 0,
-        pointerEvents: 'none',
-      }}
+      style={{ position: 'fixed', top: '-9999px', left: '-9999px', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
       title="YouTube audio player"
     />
   );
