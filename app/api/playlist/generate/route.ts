@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     const systemPrompt = `Generate a playlist of ${count} songs for: "${prompt}". ${excludeStr}Return ONLY a valid JSON array with no markdown, no code fences, no explanation. Format: [{"artist":"Artist Name","track":"Track Name","search_term":"Artist Name Track Name official audio"}]. Make sure artists and tracks are real and well-known.`;
 
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

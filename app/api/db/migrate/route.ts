@@ -86,9 +86,25 @@ const SCHEMA_STATEMENTS = [
   )`,
 ];
 
+// Repair statements — run after CREATE TABLE to patch pre-existing tables
+const REPAIR_STATEMENTS = [
+  // Add email unique constraint if missing (dedup first, then add constraint)
+  `DELETE FROM users WHERE id NOT IN (
+    SELECT DISTINCT ON (email) id FROM users ORDER BY email, created_at ASC
+  )`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conname = 'users_email_key' AND conrelid = 'users'::regclass
+    ) THEN
+      ALTER TABLE users ADD CONSTRAINT users_email_key UNIQUE (email);
+    END IF;
+  END $$`,
+];
+
 /**
  * POST /api/db/migrate
- * Runs all CREATE TABLE IF NOT EXISTS statements.
+ * Runs all CREATE TABLE IF NOT EXISTS statements + repair patches.
  * Protected by x-migrate-secret header = AUTH_SECRET env var.
  * Does NOT require user login — users table may not exist yet on first run.
  */
@@ -110,6 +126,11 @@ export async function POST(req: NextRequest) {
       const match = stmt.match(/CREATE TABLE IF NOT EXISTS (\w+)/i);
       results.push(match ? `✓ ${match[1]}` : '✓ statement ok');
     }
+    // Run repair patches
+    for (const stmt of REPAIR_STATEMENTS) {
+      await client.query(stmt);
+    }
+    results.push('✓ repair patches applied');
     return NextResponse.json({ success: true, tables: results });
   } catch (error) {
     console.error('Migration error:', error);
