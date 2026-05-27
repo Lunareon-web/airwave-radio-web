@@ -141,6 +141,25 @@ export async function POST(req: NextRequest) {
 }
 
 /**
+ * DELETE /api/db/migrate?email=x
+ * Removes a user by email (admin reset for broken accounts).
+ */
+export async function DELETE(req: NextRequest) {
+  const secret = req.headers.get('x-migrate-secret');
+  if (!secret || secret !== process.env.AUTH_SECRET) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const email = req.nextUrl.searchParams.get('email');
+  if (!email) return NextResponse.json({ error: 'email param required' }, { status: 400 });
+  try {
+    const result = await sql`DELETE FROM users WHERE email = ${email} RETURNING email`;
+    return NextResponse.json({ deleted: result.length, email });
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 });
+  }
+}
+
+/**
  * GET /api/db/migrate
  * Returns list of existing tables — quick health check.
  */
