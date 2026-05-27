@@ -46,6 +46,7 @@ export default function HomePage() {
       }
     };
     loadData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Debounced session save
@@ -116,16 +117,8 @@ export default function HomePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndex, activeSource]);
 
-  const screens = {
-    radio: <NowPlaying />,
-    queue: <Queue />,
-    muse: <Muse />,
-    library: <Library />,
-  };
-
   return (
     <>
-      {/* Desktop phone frame centering */}
       <div
         className="min-h-screen flex items-start justify-center"
         style={{ background: '#F0EFEC' }}
@@ -138,19 +131,49 @@ export default function HomePage() {
             background: '#F0EFEC',
           }}
         >
+          {/*
+           * NowPlaying is ALWAYS MOUNTED so that YTPlayer (inside it) is never
+           * destroyed when the user navigates away. Destroying the iframe would
+           * kill audio playback and reset track-resolution state.
+           * We hide it with CSS when on another screen; other screens render on top.
+           */}
+          <div
+            style={{
+              display: activeScreen === 'radio' ? 'block' : 'none',
+              position: 'absolute',
+              inset: 0,
+              zIndex: 1,
+              minHeight: '100svh',
+              background: '#F0EFEC',
+              overflowY: 'auto',
+            }}
+          >
+            <NowPlaying />
+          </div>
+
+          {/* Queue / Muse / Library animate in/out on top of NowPlaying */}
           <AnimatePresence mode="wait">
-            <motion.div
-              key={activeScreen}
-              variants={SCREEN_VARIANTS}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              transition={{ duration: 0.18, ease: 'easeOut' }}
-              className="w-full"
-              style={{ minHeight: '100svh' }}
-            >
-              {screens[activeScreen]}
-            </motion.div>
+            {activeScreen !== 'radio' && (
+              <motion.div
+                key={activeScreen}
+                variants={SCREEN_VARIANTS}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: 0.18, ease: 'easeOut' }}
+                className="w-full"
+                style={{
+                  minHeight: '100svh',
+                  position: 'relative',
+                  zIndex: 2,
+                  background: '#F0EFEC',
+                }}
+              >
+                {activeScreen === 'queue'   && <Queue />}
+                {activeScreen === 'muse'    && <Muse />}
+                {activeScreen === 'library' && <Library />}
+              </motion.div>
+            )}
           </AnimatePresence>
 
           <CardyNav />
