@@ -1,0 +1,9 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "installCommand": "npm install",
+  "regions": ["fra1"],
+  "env": {
+    "NEXTAUTH_URL": "https://airwave-radio-web.vercel.app"
+  }
+}
