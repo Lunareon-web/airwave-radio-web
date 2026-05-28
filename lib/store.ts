@@ -183,7 +183,9 @@ export const useAppStore = create<AppState>()(
     setCuratedTracks: (t) => set({ curatedTracks: t }),
     setCurrentPrompt: (p) => set({ currentPrompt: p }),
     setQueue: (q) => set({ queue: q }),
-    addToQueue: (t) => set((s) => ({ queue: [...s.queue, { ...t, status: 'idle' as const }] })),
+    addToQueue: (t) => set((s) => ({
+      queue: [...s.queue, { ...t, status: (t.videoId ? 'ready' : 'idle') as CuratedTrack['status'] }],
+    })),
     removeFromQueue: (index) => set((s) => {
       const updated = s.queue.filter((_, i) => i !== index);
       if (s.activeSource === 'queue') {
@@ -254,7 +256,10 @@ export const useAppStore = create<AppState>()(
     /** Push track to front of queue and play immediately — mirrors desktop "handlePlaySongNow" */
     playNow: (track) => {
       set((s) => ({
-        queue: [{ ...track, status: 'idle' as const }, ...s.queue],
+        queue: [
+          { ...track, status: (track.videoId ? 'ready' : 'idle') as CuratedTrack['status'] },
+          ...s.queue,
+        ],
         activeSource: 'queue' as const,
         activeIndex: 0,
         isPlaying: true,

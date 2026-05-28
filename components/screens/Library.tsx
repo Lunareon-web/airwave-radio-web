@@ -289,9 +289,12 @@ export function Library() {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   const playLibraryTrack = (tracks: LibraryTrack[], index: number) => {
+    // Preserve 'ready' status for tracks that already have a videoId so
+    // YTPlayer and BackgroundResolver don't waste an API call re-resolving them.
     const playable = tracks.map((t) => ({
       artist: t.artist, track: t.track, coverArt: t.coverArt,
-      videoId: t.videoId, status: 'idle' as const,
+      videoId: t.videoId,
+      status: (t.videoId ? 'ready' : 'idle') as CuratedTrack['status'],
     }));
     setLibraryPlaylist(playable);
     setActiveSource('library');
@@ -302,7 +305,8 @@ export function Library() {
 
   const toPlayable = (t: LibraryTrack): CuratedTrack => ({
     artist: t.artist, track: t.track, coverArt: t.coverArt,
-    videoId: t.videoId, status: 'idle' as const,
+    videoId: t.videoId,
+    status: (t.videoId ? 'ready' : 'idle') as CuratedTrack['status'],
   });
 
   const handlePlayDiscography = (index: number) => {
