@@ -257,7 +257,14 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
         })
         .catch(() => {
           updateTrackInSource(activeSource, i, { status: 'failed' });
-          if (i === activeIndex) setResolveMessage('Search error — skipping…');
+          if (i === activeIndex) {
+            setResolveMessage('Search error — skipping…');
+            // Network error or Vercel timeout — skip after a short pause,
+            // just like the "not found" path (otherwise the track hangs forever).
+            setTimeout(() => {
+              if (useAppStore.getState().activeIndex === i) playNext();
+            }, 1800);
+          }
         });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps

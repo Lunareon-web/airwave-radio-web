@@ -10,69 +10,83 @@ import {
 
 // ─── Free fallback: Invidious + Piped instances ───────────────────────────────
 // Used when all YouTube API keys are quota-exhausted.
-// Multiple instances for redundancy — first one that responds wins.
+// All instances are tried IN PARALLEL so the first response wins.
+// This keeps total latency ≤ 4 s regardless of how many instances are down,
+// which is critical for Vercel's 10-second serverless-function deadline.
 
 const INVIDIOUS_INSTANCES = [
-  'https://iv.melmac.space',
-  'https://invidious.nerdvpn.de',
+  'https://yewtu.be',               // US — often fastest from Vercel
   'https://yt.artemislena.eu',
+  'https://invidious.tiekoetter.com',
+  'https://invidious.nerdvpn.de',
   'https://invidious.privacydev.net',
+  'https://iv.melmac.space',
+  'https://inv.nadeko.net',
 ];
 
 const PIPED_INSTANCES = [
   'https://pipedapi.kavin.rocks',
   'https://pipedapi.tokhmi.xyz',
+  'https://piped-api.codeberg.page',
 ];
 
 type FallbackResult = { videoId: string; title: string; thumbnail: string };
 
-/** Search via quota-free Invidious / Piped as last-resort fallback. */
+/** Search one Invidious instance — throws on any failure. */
+async function tryInvidious(instance: string, q: string): Promise<FallbackResult> {
+  const url = `${instance}/api/v1/search?q=${encodeURIComponent(q)}&type=video&fields=videoId,title,videoThumbnails`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json() as Array<{
+    videoId?: string;
+    title?: string;
+    videoThumbnails?: Array<{ quality: string; url: string }>;
+  }>;
+  const item = data?.[0];
+  if (!item?.videoId) throw new Error('no result');
+  const thumbnail =
+    item.videoThumbnails?.find((t) => t.quality === 'high')?.url ||
+    item.videoThumbnails?.[0]?.url ||
+    `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`;
+  console.log(`[youtube-fallback] Invidious hit (${instance})`);
+  return { videoId: item.videoId, title: item.title || q, thumbnail };
+}
+
+/** Search one Piped instance — throws on any failure. */
+async function tryPiped(instance: string, q: string): Promise<FallbackResult> {
+  const url = `${instance}/search?q=${encodeURIComponent(q)}&filter=music_songs`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json() as {
+    items?: Array<{ url?: string; title?: string; thumbnail?: string }>;
+  };
+  const item = data?.items?.[0];
+  if (!item?.url) throw new Error('no result');
+  const videoId = new URL('https://www.youtube.com' + item.url).searchParams.get('v');
+  if (!videoId) throw new Error('no videoId');
+  console.log(`[youtube-fallback] Piped hit (${instance})`);
+  return {
+    videoId,
+    title:     item.title || q,
+    thumbnail: item.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+  };
+}
+
+/**
+ * Search via quota-free Invidious / Piped as last-resort fallback.
+ * Fires ALL instances simultaneously — returns the first valid response
+ * (Promise.any). Total latency = fastest responding instance, not the sum.
+ */
 async function searchFallback(q: string): Promise<FallbackResult | null> {
-  // ── Invidious ──
-  for (const instance of INVIDIOUS_INSTANCES) {
-    try {
-      const url = `${instance}/api/v1/search?q=${encodeURIComponent(q)}&type=video&fields=videoId,title,videoThumbnails`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
-      if (!res.ok) continue;
-      const data = await res.json() as Array<{
-        videoId?: string;
-        title?: string;
-        videoThumbnails?: Array<{ quality: string; url: string }>;
-      }>;
-      const item = data?.[0];
-      if (!item?.videoId) continue;
-      const thumbnail =
-        item.videoThumbnails?.find((t) => t.quality === 'high')?.url ||
-        item.videoThumbnails?.[0]?.url ||
-        `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`;
-      console.log(`[youtube-fallback] Invidious hit (${instance})`);
-      return { videoId: item.videoId, title: item.title || q, thumbnail };
-    } catch { /* try next */ }
+  try {
+    return await Promise.any([
+      ...INVIDIOUS_INSTANCES.map((inst) => tryInvidious(inst, q)),
+      ...PIPED_INSTANCES.map((inst) => tryPiped(inst, q)),
+    ]);
+  } catch {
+    // AggregateError: all instances failed / timed out
+    return null;
   }
-
-  // ── Piped ──
-  for (const instance of PIPED_INSTANCES) {
-    try {
-      const url = `${instance}/search?q=${encodeURIComponent(q)}&filter=music_songs`;
-      const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
-      if (!res.ok) continue;
-      const data = await res.json() as {
-        items?: Array<{ url?: string; title?: string; thumbnail?: string }>;
-      };
-      const item = data?.items?.[0];
-      if (!item?.url) continue;
-      const videoId = new URL('https://www.youtube.com' + item.url).searchParams.get('v');
-      if (!videoId) continue;
-      console.log(`[youtube-fallback] Piped hit (${instance})`);
-      return {
-        videoId,
-        title:     item.title || q,
-        thumbnail: item.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-      };
-    } catch { /* try next */ }
-  }
-
-  return null;
 }
 
 // ─── Cache-key normalisation ──────────────────────────────────────────────────

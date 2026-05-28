@@ -74,6 +74,11 @@ export function BackgroundResolver() {
                                    || `https://i.ytimg.com/vi/${data.videoId}/hqdefault.jpg`,
                   resolvedTitle: data.title,
                 });
+              } else if (res.status === 429) {
+                // All YouTube keys AND free fallbacks exhausted —
+                // no point resolving more tracks; they'll all get the same result.
+                useAppStore.getState().updateTrackInSource(source, i, { status: 'failed' });
+                return; // abort the entire background-resolver loop
               } else {
                 useAppStore.getState().updateTrackInSource(source, i, { status: 'failed' });
               }
