@@ -3,8 +3,9 @@
 import {
   X, GripVertical, Plus, Play, Pause, SkipForward,
   Heart, ThumbsDown, Sparkles, ArrowUpDown, Trash2,
+  Loader2, CheckCircle2, ListMusic,
 } from 'lucide-react';
-import { motion, AnimatePresence, Reorder } from 'framer-motion';
+import { Reorder } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
 import { AlbumArt } from '@/components/ui/AlbumArt';
 import { Chip } from '@/components/ui/Chip';
@@ -17,14 +18,26 @@ const TABS: { id: QueueTab; label: string }[] = [
   { id: 'saved',   label: 'Saved' },
 ];
 
+/** Small spinner/check badge shown next to track title */
+function StatusBadge({ status }: { status?: string }) {
+  if (status === 'searching') {
+    return <Loader2 size={12} className="animate-spin flex-shrink-0" style={{ color: '#FF4D3D' }} />;
+  }
+  if (status === 'ready') {
+    return <CheckCircle2 size={12} className="flex-shrink-0" style={{ color: '#4CAF50' }} />;
+  }
+  return null;
+}
+
 function TrackRow({
   track,
-  index,
   isActive,
   isPlaying,
   onPlay,
   onRemove,
   onAddToQueue,
+  onPlayNow,
+  onAddToPlaylist,
   showGrip = false,
   onLike,
   onDislike,
@@ -33,12 +46,13 @@ function TrackRow({
   onStartRadio,
 }: {
   track: CuratedTrack;
-  index: number;
   isActive?: boolean;
   isPlaying?: boolean;
   onPlay?: () => void;
   onRemove?: () => void;
   onAddToQueue?: () => void;
+  onPlayNow?: () => void;
+  onAddToPlaylist?: () => void;
   showGrip?: boolean;
   onLike?: () => void;
   onDislike?: () => void;
@@ -56,15 +70,31 @@ function TrackRow({
           <GripVertical size={16} />
         </div>
       )}
-      {onAddToQueue && !showGrip && (
+
+      {/* Left action: play-now pill (history/skipped rows) */}
+      {onPlayNow && !showGrip && (
+        <button
+          onClick={onPlayNow}
+          className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-all hover:opacity-80"
+          style={{ background: '#FF4D3D' }}
+          title="Play now"
+        >
+          <Play size={12} color="white" fill="white" />
+        </button>
+      )}
+
+      {/* Left action: add-to-queue pill (muse suggestions without playNow) */}
+      {onAddToQueue && !showGrip && !onPlayNow && (
         <button
           onClick={onAddToQueue}
           className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-all hover:opacity-80"
           style={{ background: '#E8E6E1', color: '#6B6B6B' }}
+          title="Add to queue"
         >
           <Plus size={14} />
         </button>
       )}
+
       <AlbumArt
         artist={track.artist}
         track={track.track}
@@ -72,16 +102,47 @@ function TrackRow({
         size={44}
         rounded="xl"
       />
+
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold truncate" style={{ color: '#131313' }}>{track.track}</p>
+        <div className="flex items-center gap-1.5">
+          <p className="text-sm font-semibold truncate" style={{ color: '#131313' }}>{track.track}</p>
+          <StatusBadge status={track.status} />
+        </div>
         <p className="text-xs truncate" style={{ color: '#9A9A9A' }}>{track.artist}</p>
       </div>
+
       {track.album && <Chip size="sm" variant="default">{track.album}</Chip>}
 
-      {/* Action buttons */}
+      {/* Right action buttons */}
       <div className="flex items-center gap-1 flex-shrink-0">
+        {/* Secondary add-to-queue when we also have playNow */}
+        {onAddToQueue && onPlayNow && (
+          <button
+            onClick={onAddToQueue}
+            title="Add to queue"
+            style={{ color: '#C2C0BB' }}
+            className="hover:opacity-80 transition-opacity"
+          >
+            <Plus size={15} />
+          </button>
+        )}
+        {onAddToPlaylist && (
+          <button
+            onClick={onAddToPlaylist}
+            title="Add to playlist"
+            style={{ color: '#C2C0BB' }}
+            className="hover:opacity-80 transition-opacity"
+          >
+            <ListMusic size={15} />
+          </button>
+        )}
         {onStartRadio && (
-          <button onClick={onStartRadio} title="Start similar radio" style={{ color: '#C2C0BB' }} className="hover:text-[#FF4D3D] transition-colors">
+          <button
+            onClick={onStartRadio}
+            title="Start similar radio"
+            style={{ color: '#C2C0BB' }}
+            className="hover:text-[#FF4D3D] transition-colors"
+          >
             <Sparkles size={15} />
           </button>
         )}
@@ -114,11 +175,11 @@ export function Queue() {
   const {
     queue, setQueue, playedTracks, skippedTracks,
     activeSource, activeIndex, isPlaying,
-    setIsPlaying, playTrack, removeFromQueue, reorderQueue,
-    addToQueue, curatedTracks, setActiveScreen,
+    setIsPlaying, playTrack, removeFromQueue,
+    addToQueue, playNow, curatedTracks, setActiveScreen,
     queueTab, setQueueTab, queueSort, sortQueueBy,
     library, likeTrack, unlikeTrack, dislikeTrack, undislikeTrack,
-    setCurrentPrompt,
+    setCurrentPrompt, setAddToPlaylistTrack,
   } = useAppStore();
 
   const getCurrentTrack = useAppStore((s) => s.getCurrentTrack);
@@ -286,11 +347,11 @@ export function Queue() {
                       <div className="flex-1 min-w-0">
                         <TrackRow
                           track={track}
-                          index={i}
                           isActive={activeSource === 'queue' && activeIndex === i}
                           isPlaying={isPlaying && activeSource === 'queue' && activeIndex === i}
                           onPlay={() => playTrack('queue', i)}
                           onRemove={() => removeFromQueue(i)}
+                          onAddToPlaylist={() => setAddToPlaylistTrack(track)}
                           isLiked={likedSet.has(tid)}
                           isDisliked={dislikedSet.has(tid)}
                           onLike={() => likedSet.has(tid) ? unlikeTrack(tid) : likeTrack(track)}
@@ -312,13 +373,22 @@ export function Queue() {
             {playedTracks.length === 0 ? (
               <p className="text-sm text-center py-8" style={{ color: '#9A9A9A' }}>No played tracks yet.</p>
             ) : (
-              playedTracks.map((track, i) => (
-                <TrackRow
-                  key={i} track={track} index={i}
-                  onAddToQueue={() => addToQueue({ ...track })}
-                  onStartRadio={() => handleStartRadio(track)}
-                />
-              ))
+              playedTracks.map((track, i) => {
+                const tid = makeTrackId(track);
+                return (
+                  <TrackRow
+                    key={i} track={track}
+                    onPlayNow={() => playNow({ ...track })}
+                    onAddToQueue={() => addToQueue({ ...track })}
+                    onAddToPlaylist={() => setAddToPlaylistTrack(track)}
+                    onStartRadio={() => handleStartRadio(track)}
+                    isLiked={likedSet.has(tid)}
+                    isDisliked={dislikedSet.has(tid)}
+                    onLike={() => likedSet.has(tid) ? unlikeTrack(tid) : likeTrack(track)}
+                    onDislike={() => dislikedSet.has(tid) ? undislikeTrack(tid) : dislikeTrack(tid)}
+                  />
+                );
+              })
             )}
           </div>
         )}
@@ -329,13 +399,22 @@ export function Queue() {
             {skippedTracks.length === 0 ? (
               <p className="text-sm text-center py-8" style={{ color: '#9A9A9A' }}>No skipped tracks.</p>
             ) : (
-              skippedTracks.map((track, i) => (
-                <TrackRow
-                  key={i} track={track} index={i}
-                  onAddToQueue={() => addToQueue({ ...track })}
-                  onStartRadio={() => handleStartRadio(track)}
-                />
-              ))
+              skippedTracks.map((track, i) => {
+                const tid = makeTrackId(track);
+                return (
+                  <TrackRow
+                    key={i} track={track}
+                    onPlayNow={() => playNow({ ...track })}
+                    onAddToQueue={() => addToQueue({ ...track })}
+                    onAddToPlaylist={() => setAddToPlaylistTrack(track)}
+                    onStartRadio={() => handleStartRadio(track)}
+                    isLiked={likedSet.has(tid)}
+                    isDisliked={dislikedSet.has(tid)}
+                    onLike={() => likedSet.has(tid) ? unlikeTrack(tid) : likeTrack(track)}
+                    onDislike={() => dislikedSet.has(tid) ? undislikeTrack(tid) : dislikeTrack(tid)}
+                  />
+                );
+              })
             )}
           </div>
         )}
@@ -346,27 +425,29 @@ export function Queue() {
             {savedTracks.length === 0 ? (
               <p className="text-sm text-center py-8" style={{ color: '#9A9A9A' }}>No saved tracks yet. Like tracks to save them here.</p>
             ) : (
-              savedTracks.map((track, i) => (
-                <TrackRow
-                  key={i} track={track} index={i}
-                  onAddToQueue={() => addToQueue({ ...track })}
-                  onPlay={() => {
-                    useAppStore.getState().setLibraryPlaylist(savedTracks);
-                    useAppStore.getState().setActiveSource('library');
-                    useAppStore.getState().setActiveIndex(i);
-                    useAppStore.getState().setIsPlaying(true);
-                    setActiveScreen('radio');
-                  }}
-                  isActive={activeSource === 'library' && activeIndex === i}
-                  isPlaying={isPlaying && activeSource === 'library' && activeIndex === i}
-                  isLiked
-                  onLike={() => {
-                    const tid = makeTrackId(track);
-                    unlikeTrack(tid);
-                  }}
-                  onStartRadio={() => handleStartRadio(track)}
-                />
-              ))
+              savedTracks.map((track, i) => {
+                const tid = makeTrackId(track);
+                return (
+                  <TrackRow
+                    key={i} track={track}
+                    onPlayNow={() => playNow({ ...track })}
+                    onAddToQueue={() => addToQueue({ ...track })}
+                    onAddToPlaylist={() => setAddToPlaylistTrack(track)}
+                    isActive={activeSource === 'library' && activeIndex === i}
+                    isPlaying={isPlaying && activeSource === 'library' && activeIndex === i}
+                    onPlay={() => {
+                      useAppStore.getState().setLibraryPlaylist(savedTracks);
+                      useAppStore.getState().setActiveSource('library');
+                      useAppStore.getState().setActiveIndex(i);
+                      useAppStore.getState().setIsPlaying(true);
+                      setActiveScreen('radio');
+                    }}
+                    isLiked
+                    onLike={() => unlikeTrack(tid)}
+                    onStartRadio={() => handleStartRadio(track)}
+                  />
+                );
+              })
             )}
           </div>
         )}
@@ -380,8 +461,9 @@ export function Queue() {
             <div className="space-y-0.5">
               {curatedTracks.slice(0, 5).map((track, i) => (
                 <TrackRow
-                  key={i} track={track} index={i}
+                  key={i} track={track}
                   onAddToQueue={() => addToQueue({ ...track })}
+                  onAddToPlaylist={() => setAddToPlaylistTrack(track)}
                 />
               ))}
             </div>

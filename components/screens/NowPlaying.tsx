@@ -5,7 +5,7 @@ import {
   Heart, ThumbsDown, Shuffle,
   Volume2, VolumeX, Volume1,
   MoreHorizontal, Settings, Sparkles,
-  Loader2,
+  Loader2, ListMusic,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
@@ -42,6 +42,7 @@ export function NowPlaying() {
     volume, setVolume, isMuted, setIsMuted,
     resolveMessage,
     addToQueue, setCuratedTracks, setActiveSource, setActiveIndex,
+    setAddToPlaylistTrack,
   } = useAppStore();
 
   const track = getCurrentTrack();
@@ -234,10 +235,40 @@ export function NowPlaying() {
       {settings.playbackMode === 'video' && (
         <div className="rounded-2xl p-4 mb-4 flex flex-col gap-3" style={{ background: '#FFFFFF', boxShadow: '0 2px 12px rgba(14,14,14,0.06)' }}>
           <div>
-            <h2 className="text-base font-bold truncate" style={{ color: '#131313' }}>
-              {track?.track || 'No track'}
-            </h2>
-            <p className="text-sm truncate" style={{ color: '#9A9A9A' }}>{track?.artist}</p>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-bold truncate flex-1" style={{ color: '#131313' }}>
+                {track?.track || 'No track'}
+              </h2>
+              {track && (
+                <button
+                  onClick={() => setAddToPlaylistTrack(track)}
+                  title="Add to playlist"
+                  className="flex-shrink-0 transition-opacity hover:opacity-70"
+                  style={{ color: '#9A9A9A' }}
+                >
+                  <ListMusic size={16} />
+                </button>
+              )}
+            </div>
+            {track?.artist ? (
+              <button
+                className="text-sm truncate text-left w-full transition-colors hover:opacity-70"
+                style={{ color: '#9A9A9A' }}
+                onClick={() => {
+                  if (!track?.artist) return;
+                  const store = useAppStore.getState();
+                  store.setDiscographyTracks([]);
+                  store.setDiscographyArtist(null);
+                  store.setDiscographyQuery(track.artist);
+                  store.setActiveScreen('library');
+                }}
+                title={`Browse ${track.artist} discography`}
+              >
+                {track.artist}
+              </button>
+            ) : (
+              <p className="text-sm truncate" style={{ color: '#9A9A9A' }}>{track?.artist}</p>
+            )}
           </div>
           {/* Seek */}
           <div>
@@ -270,12 +301,42 @@ export function NowPlaying() {
 
           {/* Track info */}
           <div className="text-center mb-3 w-full">
-            <h2 className="text-xl font-extrabold mb-0.5 leading-tight truncate" style={{ color: '#FFFFFF' }}>
-              {track?.track || 'No track selected'}
-            </h2>
-            <p className="text-sm font-medium truncate" style={{ color: '#9A9A9A' }}>
-              {track?.artist || 'Select a source to begin'}
-            </p>
+            <div className="flex items-center justify-center gap-2">
+              <h2 className="text-xl font-extrabold mb-0.5 leading-tight truncate" style={{ color: '#FFFFFF' }}>
+                {track?.track || 'No track selected'}
+              </h2>
+              {track && (
+                <button
+                  onClick={() => setAddToPlaylistTrack(track)}
+                  title="Add to playlist"
+                  className="mb-0.5 flex-shrink-0 transition-opacity hover:opacity-80"
+                  style={{ color: '#6B6B6B' }}
+                >
+                  <ListMusic size={16} />
+                </button>
+              )}
+            </div>
+            {track?.artist ? (
+              <button
+                className="text-sm font-medium truncate max-w-full transition-colors hover:opacity-80"
+                style={{ color: '#9A9A9A' }}
+                onClick={() => {
+                  if (!track?.artist) return;
+                  const store = useAppStore.getState();
+                  store.setDiscographyTracks([]);
+                  store.setDiscographyArtist(null);
+                  store.setDiscographyQuery(track.artist);
+                  store.setActiveScreen('library');
+                }}
+                title={`Browse ${track.artist} discography`}
+              >
+                {track.artist}
+              </button>
+            ) : (
+              <p className="text-sm font-medium truncate" style={{ color: '#9A9A9A' }}>
+                Select a source to begin
+              </p>
+            )}
             {resolveMessage && (
               <p className="text-[10px] mt-1 truncate font-mono" style={{ color: '#555' }}>
                 {track?.status === 'searching' && <Loader2 size={10} className="inline mr-1 animate-spin" />}

@@ -9,6 +9,8 @@ import { Muse } from '@/components/screens/Muse';
 import { Library } from '@/components/screens/Library';
 import { CardyNav } from '@/components/navigation/CardyNav';
 import { SettingsPanel } from '@/components/ui/SettingsPanel';
+import { AddToPlaylistModal } from '@/components/ui/AddToPlaylistModal';
+import type { CuratedTrack } from '@/lib/types';
 
 const SCREEN_VARIANTS = {
   enter: { opacity: 0, y: 8 },
@@ -16,30 +18,103 @@ const SCREEN_VARIANTS = {
   exit: { opacity: 0, y: -8 },
 };
 
+/** Reset tracks that were mid-search when the session was saved */
+function resetStatus(tracks: CuratedTrack[]): CuratedTrack[] {
+  return tracks.map((t) =>
+    t.status === 'searching' ? { ...t, status: 'idle' as const } : t
+  );
+}
+
 export default function HomePage() {
-  const { activeScreen, setLibrary, setSettings, curatedTracks, activeIndex, activeSource } = useAppStore();
+  const {
+    activeScreen,
+    setLibrary,
+    setSettings,
+    curatedTracks,
+    discographyTracks,
+    discographyArtist,
+    discographyQuery,
+    queue,
+    playedTracks,
+    skippedTracks,
+    isShuffled,
+    volume,
+    queueTab,
+    currentPrompt,
+    activeIndex,
+    activeSource,
+    isPlaying,
+  } = useAppStore();
+
   const sessionSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load library and settings on mount
+  // ── Load library, settings, playlists + restore session on mount ─────────
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [likedRes, historyRes, settingsRes] = await Promise.all([
+        const [likedRes, historyRes, settingsRes, playlistsRes, sessionRes] = await Promise.all([
           fetch('/api/library/liked'),
           fetch('/api/library/history'),
           fetch('/api/settings'),
+          fetch('/api/library/playlists'),
+          fetch('/api/session'),
         ]);
+
+        const store = useAppStore.getState();
+
+        // Liked + history
+        let liked = store.library.liked;
+        let history = store.library.history;
+        let playlists = store.library.playlists;
+
         if (likedRes.ok) {
-          const { liked } = await likedRes.json();
-          useAppStore.getState().setLibrary({ ...useAppStore.getState().library, liked: liked || [] });
+          const d = await likedRes.json();
+          liked = d.liked || [];
         }
         if (historyRes.ok) {
-          const { history } = await historyRes.json();
-          useAppStore.getState().setLibrary({ ...useAppStore.getState().library, history: history || [] });
+          const d = await historyRes.json();
+          history = d.history || [];
         }
+        if (playlistsRes.ok) {
+          const d = await playlistsRes.json();
+          playlists = d.playlists || [];
+        }
+        setLibrary({ liked, disliked: store.library.disliked, history, playlists });
+
+        // Settings
         if (settingsRes.ok) {
-          const { settings } = await settingsRes.json();
-          if (settings) useAppStore.getState().setSettings(settings);
+          const d = await settingsRes.json();
+          if (d.settings) setSettings(d.settings);
+        }
+
+        // Session restore
+        if (sessionRes.ok) {
+          const { session: saved } = await sessionRes.json();
+          if (saved) {
+            if (saved.discography_tracks?.length)
+              store.setDiscographyTracks(resetStatus(saved.discography_tracks));
+            if (saved.discography_artist)
+              store.setDiscographyArtist(saved.discography_artist);
+            if (saved.discography_query)
+              store.setDiscographyQuery(saved.discography_query);
+            if (saved.curated_tracks?.length)
+              store.setCuratedTracks(resetStatus(saved.curated_tracks));
+            if (saved.current_prompt)
+              store.setCurrentPrompt(saved.current_prompt);
+            if (saved.queue?.length)
+              store.setQueue(resetStatus(saved.queue));
+            if (saved.played_tracks?.length)
+              store.setPlayedTracks(saved.played_tracks);
+            if (saved.skipped_tracks?.length)
+              store.setSkippedTracks(saved.skipped_tracks);
+            if (typeof saved.is_shuffled === 'boolean')
+              store.setIsShuffled(saved.is_shuffled);
+            if (typeof saved.volume === 'number')
+              store.setVolume(saved.volume);
+            if (saved.queue_tab)
+              store.setQueueTab(saved.queue_tab);
+            // Note: activeSource/activeIndex/isPlaying NOT restored — user must press play
+          }
         }
       } catch (e) {
         console.error('Load data error:', e);
@@ -49,29 +124,29 @@ export default function HomePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Debounced session save
+  // ── Debounced session save ────────────────────────────────────────────────
   useEffect(() => {
-    const state = useAppStore.getState();
     if (sessionSaveTimer.current) clearTimeout(sessionSaveTimer.current);
     sessionSaveTimer.current = setTimeout(async () => {
+      const state = useAppStore.getState();
       try {
         await fetch('/api/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            discographyTracks: state.discographyTracks,
-            discographyArtist: state.discographyArtist,
-            discographyQuery: state.discographyQuery,
-            curatedTracks: state.curatedTracks,
-            currentPrompt: state.currentPrompt,
-            queue: state.queue,
-            playedTracks: state.playedTracks,
-            skippedTracks: state.skippedTracks,
-            isShuffled: state.isShuffled,
-            volume: state.volume,
-            queueTab: state.queueTab,
-            activeSource: state.activeSource,
-            activeIndex: state.activeIndex,
+            discographyTracks:  state.discographyTracks,
+            discographyArtist:  state.discographyArtist,
+            discographyQuery:   state.discographyQuery,
+            curatedTracks:      state.curatedTracks,
+            currentPrompt:      state.currentPrompt,
+            queue:              state.queue,
+            playedTracks:       state.playedTracks,
+            skippedTracks:      state.skippedTracks,
+            isShuffled:         state.isShuffled,
+            volume:             state.volume,
+            queueTab:           state.queueTab,
+            activeSource:       state.activeSource,
+            activeIndex:        state.activeIndex,
           }),
         });
       } catch (e) {
@@ -79,9 +154,13 @@ export default function HomePage() {
       }
     }, 800);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [curatedTracks, activeIndex, activeSource]);
+  }, [
+    curatedTracks, discographyTracks, discographyArtist, discographyQuery,
+    queue, playedTracks, skippedTracks, isShuffled, volume, queueTab,
+    activeIndex, activeSource, currentPrompt,
+  ]);
 
-  // Rolling curated append: when near end of curated list, fetch more
+  // ── Rolling curated append: when near end, fetch more ───────────────────
   useEffect(() => {
     const state = useAppStore.getState();
     if (
@@ -116,6 +195,58 @@ export default function HomePage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndex, activeSource]);
+
+  // ── Keyboard shortcuts: Space = play/pause, ← = prev, → = skip ─────────
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      const store = useAppStore.getState();
+      if (e.code === 'Space') {
+        e.preventDefault();
+        store.setIsPlaying(!store.isPlaying);
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault();
+        store.skipCurrent();
+      } else if (e.code === 'ArrowLeft') {
+        e.preventDefault();
+        store.playPrev();
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, []);
+
+  // ── Media Session API — OS media keys & lock screen controls ─────────────
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+
+    const store = useAppStore.getState();
+    const track = store.getCurrentTrack();
+
+    if (track) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title:   track.track,
+        artist:  track.artist,
+        artwork: track.coverArt
+          ? [{ src: track.coverArt, sizes: '512x512', type: 'image/jpeg' }]
+          : [],
+      });
+    }
+    navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+
+    navigator.mediaSession.setActionHandler('play',          () => useAppStore.getState().setIsPlaying(true));
+    navigator.mediaSession.setActionHandler('pause',         () => useAppStore.getState().setIsPlaying(false));
+    navigator.mediaSession.setActionHandler('nexttrack',     () => useAppStore.getState().skipCurrent());
+    navigator.mediaSession.setActionHandler('previoustrack', () => useAppStore.getState().playPrev());
+
+    return () => {
+      (['play', 'pause', 'nexttrack', 'previoustrack'] as MediaSessionAction[]).forEach((a) =>
+        navigator.mediaSession.setActionHandler(a, null)
+      );
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying, activeIndex, activeSource]);
 
   return (
     <>
@@ -178,6 +309,9 @@ export default function HomePage() {
 
           <CardyNav />
           <SettingsPanel />
+
+          {/* Global Add-to-Playlist modal */}
+          <AddToPlaylistModal />
         </div>
       </div>
     </>

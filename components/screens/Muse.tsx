@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, Plus, Sparkles, Play, Loader2 } from 'lucide-react';
+import { Send, Plus, Sparkles, Play, Loader2, ListMusic, ChevronDown, ChevronUp, ListPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
 import { AlbumArt } from '@/components/ui/AlbumArt';
@@ -56,7 +56,17 @@ function TypingIndicator() {
   );
 }
 
-function TrackCard({ track, onAdd, onPlay }: { track: CuratedTrack; onAdd: () => void; onPlay: () => void }) {
+function TrackCard({
+  track,
+  onAdd,
+  onPlay,
+  onAddToPlaylist,
+}: {
+  track: CuratedTrack;
+  onAdd: () => void;
+  onPlay: () => void;
+  onAddToPlaylist: () => void;
+}) {
   return (
     <div
       className="flex items-center gap-3 p-3 rounded-xl mb-2"
@@ -71,12 +81,102 @@ function TrackCard({ track, onAdd, onPlay }: { track: CuratedTrack; onAdd: () =>
         onClick={onPlay}
         className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
         style={{ background: '#FF4D3D' }}
+        title="Play now"
       >
         <Play size={14} color="white" fill="white" />
       </button>
-      <button onClick={onAdd} className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: '#E8E6E1' }}>
+      <button
+        onClick={onAdd}
+        className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+        style={{ background: '#E8E6E1' }}
+        title="Add to queue"
+      >
         <Plus size={14} color="#6B6B6B" />
       </button>
+      <button
+        onClick={onAddToPlaylist}
+        className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+        style={{ background: '#E8E6E1' }}
+        title="Add to playlist"
+      >
+        <ListMusic size={14} color="#6B6B6B" />
+      </button>
+    </div>
+  );
+}
+
+/** Expandable track list inside a Muse message bubble */
+function MessageTrackList({
+  tracks,
+  onPlayAll,
+  onAddAll,
+}: {
+  tracks: CuratedTrack[];
+  onPlayAll: () => void;
+  onAddAll: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const { addToQueue, setAddToPlaylistTrack } = useAppStore();
+  const visible = expanded ? tracks : tracks.slice(0, 5);
+
+  return (
+    <div className="mt-3">
+      {/* Header row */}
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-semibold" style={{ color: '#9A9A9A' }}>
+          {tracks.length} tracks
+        </span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onAddAll}
+            className="text-xs font-bold px-2.5 py-1.5 rounded-full flex items-center gap-1.5"
+            style={{ background: 'rgba(255,77,61,0.12)', color: '#FF4D3D' }}
+            title="Add all to queue"
+          >
+            <ListPlus size={10} /> Add All
+          </button>
+          <button
+            onClick={onPlayAll}
+            className="text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5"
+            style={{ background: '#FF4D3D', color: '#FFFFFF' }}
+          >
+            <Play size={10} fill="white" /> Play All
+          </button>
+        </div>
+      </div>
+
+      {/* Track cards */}
+      {visible.map((track, i) => (
+        <TrackCard
+          key={i}
+          track={track}
+          onAdd={() => addToQueue({ ...track })}
+          onPlay={() => {
+            const store = useAppStore.getState();
+            store.setCuratedTracks(tracks);
+            store.setActiveSource('curated');
+            store.setActiveIndex(expanded ? i : i);
+            store.setIsPlaying(true);
+            store.setActiveScreen('radio');
+          }}
+          onAddToPlaylist={() => setAddToPlaylistTrack(track)}
+        />
+      ))}
+
+      {/* Expand / collapse toggle */}
+      {tracks.length > 5 && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="w-full flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-xl mt-1 transition-opacity hover:opacity-70"
+          style={{ background: '#1A1A1A', color: '#9A9A9A' }}
+        >
+          {expanded ? (
+            <><ChevronUp size={12} /> Show less</>
+          ) : (
+            <><ChevronDown size={12} /> +{tracks.length - 5} more</>
+          )}
+        </button>
+      )}
     </div>
   );
 }
@@ -86,8 +186,8 @@ export function Muse() {
     chatMessages, addChatMessage, clearChat,
     isCurating, setIsCurating, curationError, setCurationError,
     curatedTracks, setCuratedTracks, currentPrompt, setCurrentPrompt,
-    addToQueue, playTrack, setActiveSource, setActiveIndex, setIsPlaying,
-    settings,
+    addToQueue, setActiveScreen,
+    settings, setAddToPlaylistTrack,
   } = useAppStore();
 
   const [input, setInput] = useState(currentPrompt || '');
@@ -160,6 +260,13 @@ export function Muse() {
     store.setIsPlaying(true);
     store.setActiveScreen('radio');
   };
+
+  const handleAddAll = (tracks: CuratedTrack[]) => {
+    tracks.forEach((t) => addToQueue({ ...t }));
+  };
+
+  // Suppress unused var warning; curationError is used implicitly via chat messages
+  void curationError;
 
   return (
     <div className="flex flex-col h-full">
@@ -238,40 +345,11 @@ export function Muse() {
                   {msg.content}
                 </div>
                 {msg.tracks && msg.tracks.length > 0 && (
-                  <div className="mt-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-semibold" style={{ color: '#9A9A9A' }}>
-                        {msg.tracks.length} tracks
-                      </span>
-                      <button
-                        onClick={() => handlePlayAll(msg.tracks!)}
-                        className="text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5"
-                        style={{ background: '#FF4D3D', color: '#FFFFFF' }}
-                      >
-                        <Play size={10} fill="white" /> Play All
-                      </button>
-                    </div>
-                    {msg.tracks.slice(0, 5).map((track, i) => (
-                      <TrackCard
-                        key={i}
-                        track={track}
-                        onAdd={() => addToQueue({ ...track })}
-                        onPlay={() => {
-                          const store = useAppStore.getState();
-                          store.setCuratedTracks(msg.tracks!);
-                          store.setActiveSource('curated');
-                          store.setActiveIndex(i);
-                          store.setIsPlaying(true);
-                          store.setActiveScreen('radio');
-                        }}
-                      />
-                    ))}
-                    {msg.tracks.length > 5 && (
-                      <p className="text-xs text-center mt-1" style={{ color: '#9A9A9A' }}>
-                        +{msg.tracks.length - 5} more tracks
-                      </p>
-                    )}
-                  </div>
+                  <MessageTrackList
+                    tracks={msg.tracks}
+                    onPlayAll={() => handlePlayAll(msg.tracks!)}
+                    onAddAll={() => handleAddAll(msg.tracks!)}
+                  />
                 )}
               </div>
             </motion.div>

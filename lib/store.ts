@@ -3,7 +3,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import type {
   ActiveSource, ActiveScreen, QueueTab,
   CuratedTrack, DiscographyArtist, LibraryStore,
-  AppSettings, AIAdvisorData, ChatMessage
+  AppSettings, AIAdvisorData, ChatMessage, Playlist,
 } from './types';
 
 export type QueueSort = 'none' | 'artist' | 'track';
@@ -41,6 +41,9 @@ interface AppState {
   curationError: string | null;
   resolveMessage: string;
   showSettings: boolean;
+
+  // Add-to-playlist modal (global)
+  addToPlaylistTrack: CuratedTrack | null;
 
   // AI Advisor
   advisorData: AIAdvisorData | null;
@@ -81,6 +84,7 @@ interface AppState {
   setDuration: (d: number) => void;
   setIsMuted: (v: boolean) => void;
   playTrack: (source: ActiveSource, index: number) => void;
+  playNow: (track: CuratedTrack) => void;
   playNext: () => void;
   playPrev: () => void;
   skipCurrent: () => void;
@@ -92,6 +96,7 @@ interface AppState {
   setCurationError: (e: string | null) => void;
   setResolveMessage: (m: string) => void;
   setShowSettings: (v: boolean) => void;
+  setAddToPlaylistTrack: (track: CuratedTrack | null) => void;
 
   // Actions — AI Advisor
   setAdvisorData: (d: AIAdvisorData | null) => void;
@@ -108,6 +113,12 @@ interface AppState {
   undislikeTrack: (id: string) => void;
   addToHistory: (track: CuratedTrack) => void;
   setLibrary: (lib: LibraryStore) => void;
+
+  // Actions — Playlists
+  createPlaylist: (name: string) => Promise<void>;
+  deletePlaylist: (id: string) => void;
+  addToPlaylist: (playlistId: string, track: CuratedTrack) => void;
+  removeFromPlaylist: (playlistId: string, trackId: string) => void;
 
   // Actions — Settings
   setSettings: (s: Partial<AppSettings>) => void;
@@ -155,6 +166,7 @@ export const useAppStore = create<AppState>()(
     curationError: null,
     resolveMessage: '',
     showSettings: false,
+    addToPlaylistTrack: null,
     advisorData: null,
     isAnalyzing: false,
     chatMessages: [],
@@ -174,7 +186,6 @@ export const useAppStore = create<AppState>()(
     addToQueue: (t) => set((s) => ({ queue: [...s.queue, { ...t, status: 'idle' as const }] })),
     removeFromQueue: (index) => set((s) => {
       const updated = s.queue.filter((_, i) => i !== index);
-      // Adjust active index if queue is active source
       if (s.activeSource === 'queue') {
         if (index < s.activeIndex) return { queue: updated, activeIndex: s.activeIndex - 1 };
         if (index === s.activeIndex) return { queue: updated, isPlaying: false, activeIndex: -1 };
@@ -185,7 +196,6 @@ export const useAppStore = create<AppState>()(
       const q = [...s.queue];
       const [item] = q.splice(from, 1);
       q.splice(to, 0, item);
-      // Adjust active index for queue source
       if (s.activeSource === 'queue') {
         let ai = s.activeIndex;
         if (from === ai) ai = to;
@@ -241,11 +251,21 @@ export const useAppStore = create<AppState>()(
       if (track.status === 'ready') get().addToHistory(track);
     },
 
+    /** Push track to front of queue and play immediately — mirrors desktop "handlePlaySongNow" */
+    playNow: (track) => {
+      set((s) => ({
+        queue: [{ ...track, status: 'idle' as const }, ...s.queue],
+        activeSource: 'queue' as const,
+        activeIndex: 0,
+        isPlaying: true,
+        currentTime: 0,
+      }));
+    },
+
     playNext: () => {
       const s = get();
       if (!s.activeSource) return;
       const tracks = s.getSourceTracks(s.activeSource);
-      // Add current to played
       const current = tracks[s.activeIndex];
       if (current) {
         set((state) => ({ playedTracks: prependUnique(state.playedTracks, current) }));
@@ -276,7 +296,6 @@ export const useAppStore = create<AppState>()(
       if (!s.activeSource) return;
       const tracks = s.getSourceTracks(s.activeSource);
       const current = tracks[s.activeIndex];
-      // Add current to skipped
       if (current) {
         set((state) => ({ skippedTracks: prependUnique(state.skippedTracks, current) }));
       }
@@ -299,6 +318,7 @@ export const useAppStore = create<AppState>()(
     setCurationError: (e) => set({ curationError: e }),
     setResolveMessage: (m) => set({ resolveMessage: m }),
     setShowSettings: (v) => set({ showSettings: v }),
+    setAddToPlaylistTrack: (track) => set({ addToPlaylistTrack: track }),
 
     // AI Advisor
     setAdvisorData: (d) => set({ advisorData: d }),
@@ -387,6 +407,76 @@ export const useAppStore = create<AppState>()(
     },
 
     setLibrary: (lib) => set({ library: lib }),
+
+    // Playlists
+    createPlaylist: async (name: string) => {
+      try {
+        const res = await fetch('/api/library/playlists', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name }),
+        });
+        const { playlist } = await res.json();
+        if (playlist) {
+          set((s) => ({ library: { ...s.library, playlists: [...s.library.playlists, playlist as Playlist] } }));
+        }
+      } catch (e) { console.error(e); }
+    },
+
+    deletePlaylist: (id) => {
+      set((s) => ({ library: { ...s.library, playlists: s.library.playlists.filter((p) => p.id !== id) } }));
+      fetch('/api/library/playlists', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      }).catch(console.error);
+    },
+
+    addToPlaylist: (playlistId, track) => {
+      const trackId = makeTrackId(track);
+      set((s) => ({
+        library: {
+          ...s.library,
+          playlists: s.library.playlists.map((p) =>
+            p.id === playlistId && !p.tracks.some((t) => t.id === trackId)
+              ? {
+                  ...p,
+                  tracks: [...p.tracks, {
+                    id: trackId,
+                    artist: track.artist,
+                    track: track.track,
+                    coverArt: track.coverArt,
+                    videoId: track.videoId,
+                    likedAt: Date.now(),
+                  }],
+                  coverArt: p.coverArt ?? track.coverArt,
+                }
+              : p
+          ),
+        },
+      }));
+      fetch(`/api/library/playlists/${playlistId}/tracks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trackId, artist: track.artist, track: track.track, coverArt: track.coverArt, videoId: track.videoId, position: 0 }),
+      }).catch(console.error);
+    },
+
+    removeFromPlaylist: (playlistId, trackId) => {
+      set((s) => ({
+        library: {
+          ...s.library,
+          playlists: s.library.playlists.map((p) =>
+            p.id === playlistId ? { ...p, tracks: p.tracks.filter((t) => t.id !== trackId) } : p
+          ),
+        },
+      }));
+      fetch(`/api/library/playlists/${playlistId}/tracks`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trackId }),
+      }).catch(console.error);
+    },
 
     // Settings
     setSettings: (s) => set((state) => ({ settings: { ...state.settings, ...s } })),
