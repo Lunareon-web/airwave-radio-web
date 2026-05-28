@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Sparkles, Settings } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { NowPlaying } from '@/components/screens/NowPlaying';
+import { BackgroundResolver } from '@/components/player/BackgroundResolver';
 import { Queue } from '@/components/screens/Queue';
 import { Muse } from '@/components/screens/Muse';
 import { Library as LibraryScreen } from '@/components/screens/Library';
@@ -28,6 +29,8 @@ function resetStatus(tracks: CuratedTrack[]): CuratedTrack[] {
 
 
 export default function HomePage() {
+  const playbackMode = useAppStore((s) => s.settings.playbackMode);
+
   const {
     activeScreen,
     setLibrary,
@@ -280,7 +283,7 @@ export default function HomePage() {
           {/* ── Center column: Player on top, Queue below (CSS grid split) ── */}
           <div
             className="flex-1 overflow-hidden"
-            style={{ minWidth: 320, display: 'grid', gridTemplateRows: '25fr 75fr' }}
+            style={{ minWidth: 320, display: 'grid', gridTemplateRows: playbackMode === 'video' ? '48fr 52fr' : '25fr 75fr' }}
           >
             {/* Player */}
             <div className="overflow-y-auto" style={{ borderBottom: '1px solid #DCDBD7' }}>
@@ -352,6 +355,9 @@ export default function HomePage() {
       {/* Global overlays — shown over both layouts */}
       <SettingsPanel />
       <AddToPlaylistModal />
+
+      {/* Background resolver — eagerly fetches videoId + thumbnail for all idle tracks */}
+      <BackgroundResolver />
     </>
   );
 }

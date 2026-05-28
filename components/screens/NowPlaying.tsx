@@ -170,6 +170,91 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
     </div>
   );
 
+  // ── Desktop video mode: fixed non-scrolling layout ──────────────────────
+  if (desktopMode && settings.playbackMode === 'video') {
+    return (
+      <div className="flex flex-col h-full overflow-hidden">
+        {/* Compact status header */}
+        <div
+          className="flex-shrink-0 flex items-center justify-center gap-2 px-4 py-2"
+          style={{ borderBottom: '1px solid #DCDBD7' }}
+        >
+          <FreqBars active={isPlaying} />
+          <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#9A9A9A' }}>
+            Now Broadcasting
+          </span>
+          {activeSource && (
+            <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: '#C2C0BB' }}>
+              · {SOURCE_LABEL[activeSource]}
+            </span>
+          )}
+        </div>
+
+        {/* Video — fills remaining vertical space; hidden until videoId resolves */}
+        {ownsPlayer && (
+          <div
+            className="flex-1 min-h-0 mx-4 my-2 rounded-2xl overflow-hidden"
+            style={{
+              background: '#0E0E0E',
+              visibility: track?.videoId ? 'visible' : 'hidden',
+            }}
+          >
+            <YTPlayer fillContainer />
+          </div>
+        )}
+
+        {/* Compact controls */}
+        <div className="flex-shrink-0 px-4 pb-3 flex flex-col gap-1.5">
+          {/* Track / artist */}
+          <div className="flex items-center gap-1.5">
+            <p className="text-sm font-bold truncate flex-1" style={{ color: '#131313' }}>
+              {track?.track || 'No track'}
+            </p>
+            {track && (
+              <button
+                onClick={() => setAddToPlaylistTrack(track)}
+                title="Add to playlist"
+                className="flex-shrink-0 hover:opacity-70 transition-opacity"
+                style={{ color: '#9A9A9A' }}
+              >
+                <ListMusic size={14} />
+              </button>
+            )}
+          </div>
+          {track?.artist ? (
+            <button
+              className="text-xs truncate text-left hover:opacity-70 transition-opacity -mt-1"
+              style={{ color: '#9A9A9A' }}
+              onClick={() => {
+                const s = useAppStore.getState();
+                s.setDiscographyTracks([]); s.setDiscographyArtist(null);
+                s.setDiscographyQuery(track.artist); s.setActiveScreen('library');
+              }}
+              title={`Browse ${track.artist}`}
+            >
+              {track.artist}
+            </button>
+          ) : (
+            <p className="text-xs -mt-1" style={{ color: '#9A9A9A' }}>Select a source to begin</p>
+          )}
+          {/* Seek */}
+          <input
+            type="range" min={0} max={duration || 100} value={currentTime}
+            onChange={handleSeek}
+            className="w-full h-1 rounded-full appearance-none cursor-pointer"
+            style={seekStyleLight}
+          />
+          <div className="flex justify-between -mt-1">
+            <span className="text-[10px]" style={{ color: '#9A9A9A' }}>{formatTime(currentTime)}</span>
+            <span className="text-[10px]" style={{ color: '#9A9A9A' }}>{formatTime(duration)}</span>
+          </div>
+          <TransportRow light />
+          <ShuffleVolumeRow light />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full px-4 pt-4 pb-2 overflow-y-auto">
 
@@ -223,9 +308,12 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
         </div>
       )}
 
-      {/* ── Video Mode ── */}
-      {settings.playbackMode === 'video' && track?.videoId && ownsPlayer && (
-        <div className="mb-4 rounded-2xl overflow-hidden">
+      {/* ── Video Mode ── always mount YTPlayer so it can resolve the videoId itself */}
+      {settings.playbackMode === 'video' && ownsPlayer && (
+        <div
+          className="mb-4 rounded-2xl overflow-hidden"
+          style={{ display: track?.videoId ? 'block' : 'none' }}
+        >
           <YTPlayer />
         </div>
       )}
@@ -370,12 +458,10 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
         </div>
       )}
 
-      {/* ── AI Advisor ── */}
-
       {/* Hidden audio iframe — only ONE instance per page */}
       {settings.playbackMode === 'audio' && ownsPlayer && <YTPlayer />}
 
-      <div className="h-24" />
+      {!desktopMode && <div className="h-24" />}
     </div>
   );
 }

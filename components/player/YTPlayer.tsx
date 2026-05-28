@@ -8,9 +8,12 @@ export const ytCommand: { send: ((func: string, args?: unknown[]) => void) | nul
 
 interface YTPlayerProps {
   onReady?: () => void;
+  /** When true the component renders only the bare iframe (no wrapper div).
+   *  Use inside a parent that controls dimensions (e.g. flex-1 container). */
+  fillContainer?: boolean;
 }
 
-export function YTPlayer({ onReady }: YTPlayerProps) {
+export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const ytReadyRef = useRef(false);
   const {
@@ -162,6 +165,21 @@ export function YTPlayer({ onReady }: YTPlayerProps) {
   if (!embedUrl) return null;
 
   if (isVideoMode) {
+    // fillContainer: just the bare iframe — parent controls size/shape
+    if (fillContainer) {
+      return (
+        <iframe
+          ref={iframeRef}
+          key={videoId}
+          src={embedUrl}
+          allow="autoplay; encrypted-media"
+          allowFullScreen
+          className="w-full h-full block"
+          style={{ border: 'none' }}
+          title="YouTube player"
+        />
+      );
+    }
     return (
       <div className="w-full aspect-video rounded-2xl overflow-hidden" style={{ background: '#000' }}>
         <iframe
