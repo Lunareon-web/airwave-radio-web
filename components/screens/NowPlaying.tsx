@@ -259,7 +259,7 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
             <p className="text-xs -mt-1" style={{ color: '#9A9A9A' }}>Select a source to begin</p>
           )}
           <input
-            type="range" min={0} max={duration || 100} value={currentTime}
+            type="range" min={0} max={100} value={progress}
             onChange={handleSeek}
             className="w-full h-1 rounded-full appearance-none cursor-pointer"
             style={seekStyleLight}
@@ -347,7 +347,7 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
           {/* Seek */}
           <div>
             <input
-              type="range" min={0} max={duration || 100} value={currentTime}
+              type="range" min={0} max={100} value={progress}
               onChange={handleSeek}
               className="w-full h-1 rounded-full appearance-none cursor-pointer"
               style={seekStyleLight}

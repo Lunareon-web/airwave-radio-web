@@ -380,7 +380,12 @@ export default function HomePage() {
            */}
           <div
             style={{
-              display: activeScreen === 'radio' ? 'block' : 'none',
+              // visibility:hidden keeps the DOM tree alive (YTPlayer iframe keeps running,
+              // postMessage events keep flowing, audio doesn't stutter) while making
+              // NowPlaying invisible behind other screens.
+              // display:none would throttle/freeze the iframe on Android Chrome.
+              visibility:   activeScreen === 'radio' ? 'visible' : 'hidden',
+              pointerEvents: activeScreen === 'radio' ? 'auto'    : 'none',
               position: 'absolute', inset: 0, zIndex: 1,
               minHeight: '100svh', background: '#F0EFEC', overflowY: 'auto',
             }}

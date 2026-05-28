@@ -124,24 +124,33 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   //   b) No YT events yet   → count up from store's currentTime at play-start
   // This ensures the progress bar is NEVER frozen even on Android where
   // postMessage events from hidden iframes may be delayed or absent.
+  // Also includes a safety-net auto-advance for when YT state=0 (ended) is
+  // never received (rare on Android with aggressive iframe throttling).
   useEffect(() => {
     if (!isPlaying || !videoId) return;
-    // Capture baseline at the moment playback is confirmed
     const startMs   = Date.now();
     const startTime = useAppStore.getState().currentTime;
 
     const id = setInterval(() => {
       const { time, ms } = lastYtRef.current;
+      let estimated: number;
+
       if (ms) {
-        // YT events have arrived — interpolate from last reported position
         const staleSec = (Date.now() - ms) / 1000;
-        if (staleSec >= 1.2) {
-          setCurrentTime(time + staleSec);
-        }
+        estimated = time + staleSec;
+        if (staleSec >= 1.2) setCurrentTime(estimated);
       } else {
-        // No YT event yet — estimate from when play started
         const elapsed = (Date.now() - startMs) / 1000;
-        setCurrentTime(startTime + elapsed);
+        estimated = startTime + elapsed;
+        setCurrentTime(estimated);
+      }
+
+      // Safety-net: if we're 5+ seconds past the known duration and YT hasn't
+      // fired state=0 (events throttled / blocked), trigger auto-advance here.
+      const dur = useAppStore.getState().duration;
+      if (dur > 0 && estimated > dur + 5 && !nearEndFiredRef.current) {
+        nearEndFiredRef.current = true;
+        useAppStore.getState().playNext();
       }
     }, 500);
     return () => clearInterval(id);
@@ -273,7 +282,10 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
       key={videoId}
       src={embedUrl}
       allow="autoplay; encrypted-media"
-      style={{ position: 'fixed', top: '-9999px', left: '-9999px', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+      // top:0 left:0 keeps the 1×1 iframe inside the viewport.
+      // Chrome Android throttles JS in iframes positioned outside the viewport
+      // (-9999px), which blocks postMessage events and freezes the progress bar.
+      style={{ position: 'fixed', top: 0, left: 0, width: 1, height: 1, opacity: 0, pointerEvents: 'none', border: 'none' }}
       title="YouTube audio player"
     />
   );

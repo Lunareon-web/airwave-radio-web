@@ -203,16 +203,31 @@ export function Muse() {
   const inputRef = useRef<HTMLInputElement>(null);
   // Prevents auto-curate loop when Muse itself sets currentPrompt
   const selfTrigger = useRef(false);
+  // Prevents auto-curate on app open: session restore sets currentPrompt
+  // within the first ~1 s, which would otherwise fire curate() and burn
+  // Gemini tokens without any user interaction.
+  // After 2 s the guard lifts and normal auto-curate (e.g. Start Radio) works.
+  const startupGuard = useRef(true);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages, isTyping]);
+
+  // Lift the startup guard after 2 s — enough time for session restore to
+  // complete (usually < 500 ms) but before any user interaction is possible.
+  useEffect(() => {
+    const t = setTimeout(() => { startupGuard.current = false; }, 2000);
+    return () => clearTimeout(t);
+  }, []);
 
   // ── Auto-curate when currentPrompt is set externally (e.g. Start Radio) ──
   useEffect(() => {
     if (selfTrigger.current) { selfTrigger.current = false; return; }
     if (!currentPrompt) return;
     setInput(currentPrompt);
+    // During the startup window the prompt was restored from session —
+    // don't auto-curate (would cost Gemini tokens on every app open).
+    if (startupGuard.current) return;
     const alreadyDone = chatMessages.some(
       (m) => m.role === 'user' && m.content === currentPrompt
     );
