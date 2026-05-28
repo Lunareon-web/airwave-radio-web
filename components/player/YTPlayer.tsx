@@ -183,16 +183,23 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
       if (storeSettings.youtubeKey) headers['X-YouTube-Key'] = storeSettings.youtubeKey;
 
       fetch(`/api/youtube/search?q=${encodeURIComponent(query)}`, { headers })
-        .then((r) => r.json())
-        .then((data) => {
+        .then(async (r) => ({ httpStatus: r.status, data: await r.json() as Record<string, unknown> }))
+        .then(({ httpStatus, data }) => {
           if (data.videoId) {
             updateTrackInSource(activeSource, i, {
               status: 'ready',
-              videoId: data.videoId,
-              coverArt: data.thumbnail || `https://i.ytimg.com/vi/${data.videoId}/hqdefault.jpg`,
-              resolvedTitle: data.title,
+              videoId: data.videoId as string,
+              coverArt: (data.thumbnail as string) || `https://i.ytimg.com/vi/${data.videoId}/hqdefault.jpg`,
+              resolvedTitle: data.title as string,
             });
-            if (i === activeIndex) setResolveMessage(`▶ ${data.title || track.track}`);
+            if (i === activeIndex) setResolveMessage(`▶ ${(data.title as string) || track.track}`);
+          } else if (httpStatus === 429) {
+            // All API keys have hit their daily quota — stop the skip loop.
+            // Continuing to skip is pointless since every track would fail identically.
+            updateTrackInSource(activeSource, i, { status: 'failed' });
+            if (i === activeIndex) {
+              setResolveMessage('⚠ YouTube-Kontingent erschöpft — bitte API-Key prüfen');
+            }
           } else {
             updateTrackInSource(activeSource, i, { status: 'failed' });
             if (i === activeIndex) {
