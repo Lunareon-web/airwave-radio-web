@@ -316,6 +316,15 @@ export function Queue({
     setSaving(false);
   };
 
+  // Convert library history → CuratedTrack for the Played tab (same data as Library > History)
+  const playedHistory: CuratedTrack[] = library.history.map((lt) => ({
+    artist: lt.artist,
+    track: lt.track,
+    coverArt: lt.coverArt,
+    videoId: lt.videoId,
+    status: 'ready' as const,
+  }));
+
   // Convert liked library tracks to CuratedTrack format for the Saved tab
   const savedTracks: CuratedTrack[] = library.liked.map((lt) => ({
     artist: lt.artist,
@@ -338,7 +347,7 @@ export function Queue({
 
   const tabCount: Record<QueueTab, number> = {
     queue:   queue.length,
-    played:  playedTracks.length,
+    played:  playedHistory.length,   // mirrors Library > History
     skipped: skippedTracks.length,
     saved:   library.liked.length,
   };
@@ -497,7 +506,7 @@ export function Queue({
       </div>
 
       {/* ── Queue-tab toolbar: sort + save + clear ── */}
-      {queueTab === 'queue' && queue.length > 1 && (
+      {queueTab === 'queue' && queue.length > 0 && (
         <div className="flex items-center gap-2 px-4 mb-2">
           <span className="text-[10px] uppercase tracking-wider font-semibold flex-1" style={{ color: '#9A9A9A' }}>Sort</span>
           <button
@@ -581,13 +590,13 @@ export function Queue({
           )
         )}
 
-        {/* ── Played tab ── */}
+        {/* ── Played tab — same data as Library > History ── */}
         {queueTab === 'played' && (
           <div className="space-y-0.5">
-            {playedTracks.length === 0 ? (
+            {playedHistory.length === 0 ? (
               <p className="text-sm text-center py-8" style={{ color: '#9A9A9A' }}>No played tracks yet.</p>
             ) : (
-              playedTracks.map((track, i) => {
+              playedHistory.map((track, i) => {
                 const tid = makeTrackId(track);
                 return (
                   <TrackRow

@@ -4,7 +4,12 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '@/lib/store';
 
 // Module-level ref so NowPlaying can seek without prop drilling
-export const ytCommand: { send: ((func: string, args?: unknown[]) => void) | null } = { send: null };
+export const ytCommand: {
+  send: ((func: string, args?: unknown[]) => void) | null;
+  /** Call after a manual seek so the local timer resets its baseline
+   *  and doesn't revert the slider to the pre-seek position. */
+  syncSeek: ((time: number) => void) | null;
+} = { send: null, syncSeek: null };
 
 interface YTPlayerProps {
   onReady?: () => void;
@@ -44,10 +49,14 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
     );
   }, []);
 
-  // Register for external use (seek from NowPlaying)
+  // Register for external use (seek + sync from NowPlaying)
   useEffect(() => {
     ytCommand.send = sendCommand;
-    return () => { ytCommand.send = null; };
+    ytCommand.syncSeek = (time: number) => {
+      // Reset the local-timer baseline so it interpolates from the new position
+      lastYtRef.current = { time, ms: Date.now() };
+    };
+    return () => { ytCommand.send = null; ytCommand.syncSeek = null; };
   }, [sendCommand]);
 
   // Listen for messages from the YT iframe.

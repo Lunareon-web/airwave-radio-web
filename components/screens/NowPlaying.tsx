@@ -86,9 +86,14 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
   };
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const t = parseFloat(e.target.value);
+    // Slider is always 0-100 (%). Convert to actual seconds when duration is known.
+    const pct = parseFloat(e.target.value);
+    if (duration <= 0) return; // can't seek without a known duration
+    const t = (pct / 100) * duration;
     setCurrentTime(t);
     ytCommand.send?.('seekTo', [t, true]);
+    // Reset local timer baseline so it doesn't revert the slider back to pre-seek pos
+    ytCommand.syncSeek?.(t);
   };
 
   const handleStartRadio = () => {
@@ -436,7 +441,7 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
             ) : (
               <p className="text-sm -mt-1" style={{ color: '#9A9A9A' }}>Select a source to begin</p>
             )}
-            <input type="range" min={0} max={duration || 100} value={currentTime}
+            <input type="range" min={0} max={100} value={progress}
               onChange={handleSeek}
               className="w-full h-1 rounded-full appearance-none cursor-pointer"
               style={seekStyleLight} />
@@ -489,7 +494,7 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
             </div>
             {/* Seek */}
             <div className="w-full mb-2.5">
-              <input type="range" min={0} max={duration || 100} value={currentTime}
+              <input type="range" min={0} max={100} value={progress}
                 onChange={handleSeek}
                 className="w-full h-1 rounded-full appearance-none cursor-pointer"
                 style={seekStyle} />

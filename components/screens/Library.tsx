@@ -145,8 +145,8 @@ function PlaylistCard({
             <Plus size={13} color="#6B6B6B" />
           </button>
           <button onClick={onPlayAll} disabled={!playlist.tracks.length} title="Play all"
-            className="w-7 h-7 rounded-full flex items-center justify-center disabled:opacity-30" style={{ background: '#FF4D3D' }}>
-            <Play size={13} color="white" fill="white" />
+            className="w-7 h-7 rounded-full flex items-center justify-center disabled:opacity-30" style={{ background: '#E8E6E1' }}>
+            <Play size={13} color="#6B6B6B" fill="#6B6B6B" />
           </button>
           <button onClick={onDelete} title="Delete playlist"
             className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: '#E8E6E1' }}>
@@ -176,8 +176,8 @@ function PlaylistCard({
                     <Plus size={11} color="#6B6B6B" />
                   </button>
                   <button onClick={() => onPlayTrack(t)} title="Play now"
-                    className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: '#FF4D3D' }}>
-                    <Play size={11} color="white" fill="white" />
+                    className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: '#E8E6E1' }}>
+                    <Play size={11} color="#6B6B6B" fill="#6B6B6B" />
                   </button>
                   <button onClick={() => onAddToPlaylist(t)} title="Add to another playlist"
                     className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: '#E8E6E1' }}>
