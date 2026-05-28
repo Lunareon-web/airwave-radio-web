@@ -11,7 +11,7 @@ import { Library as LibraryScreen } from '@/components/screens/Library';
 import { CardyNav } from '@/components/navigation/CardyNav';
 import { SettingsPanel } from '@/components/ui/SettingsPanel';
 import { AddToPlaylistModal } from '@/components/ui/AddToPlaylistModal';
-import type { CuratedTrack } from '@/lib/types';
+import type { CuratedTrack, DiscographyArtist } from '@/lib/types';
 
 const SCREEN_VARIANTS = {
   enter: { opacity: 0, y: 8 },
@@ -75,21 +75,45 @@ export default function HomePage() {
 
         if (settingsRes.ok) { const d = await settingsRes.json(); if (d.settings) setSettings(d.settings); }
 
+        // Helper: apply a session snapshot (server uses snake_case, localStorage uses camelCase)
+        const applySession = (saved: Record<string, unknown>, snake: boolean) => {
+          const get = (camel: string, snek: string) => saved[snake ? snek : camel];
+          const discTracks = get('discographyTracks', 'discography_tracks') as typeof store.discographyTracks | undefined;
+          const discArtist = get('discographyArtist', 'discography_artist') as DiscographyArtist | null | undefined;
+          const discQuery  = get('discographyQuery',  'discography_query')  as string | undefined;
+          const curated    = get('curatedTracks',     'curated_tracks')     as typeof store.curatedTracks | undefined;
+          const prompt     = get('currentPrompt',     'current_prompt')     as string | undefined;
+          const q          = get('queue',             'queue')              as typeof store.queue | undefined;
+          const played     = get('playedTracks',      'played_tracks')      as typeof store.playedTracks | undefined;
+          const skipped    = get('skippedTracks',     'skipped_tracks')     as typeof store.skippedTracks | undefined;
+          const shuffled   = get('isShuffled',        'is_shuffled')        as boolean | undefined;
+          const vol        = get('volume',            'volume')             as number | undefined;
+          const tab        = get('queueTab',          'queue_tab')          as typeof store.queueTab | undefined;
+          if (discTracks?.length)           store.setDiscographyTracks(resetStatus(discTracks));
+          if (discArtist !== undefined)     store.setDiscographyArtist(discArtist);
+          if (discQuery)                    store.setDiscographyQuery(discQuery);
+          if (curated?.length)              store.setCuratedTracks(resetStatus(curated));
+          if (prompt)                       store.setCurrentPrompt(prompt);
+          if (q?.length)                    store.setQueue(resetStatus(q));
+          if (played?.length)               store.setPlayedTracks(played);
+          if (skipped?.length)              store.setSkippedTracks(skipped);
+          if (typeof shuffled === 'boolean') store.setIsShuffled(shuffled);
+          if (typeof vol === 'number')       store.setVolume(vol);
+          if (tab)                           store.setQueueTab(tab);
+        };
+
         if (sessionRes.ok) {
           const { session: saved } = await sessionRes.json();
-          if (saved) {
-            if (saved.discography_tracks?.length) store.setDiscographyTracks(resetStatus(saved.discography_tracks));
-            if (saved.discography_artist)         store.setDiscographyArtist(saved.discography_artist);
-            if (saved.discography_query)          store.setDiscographyQuery(saved.discography_query);
-            if (saved.curated_tracks?.length)     store.setCuratedTracks(resetStatus(saved.curated_tracks));
-            if (saved.current_prompt)             store.setCurrentPrompt(saved.current_prompt);
-            if (saved.queue?.length)              store.setQueue(resetStatus(saved.queue));
-            if (saved.played_tracks?.length)      store.setPlayedTracks(saved.played_tracks);
-            if (saved.skipped_tracks?.length)     store.setSkippedTracks(saved.skipped_tracks);
-            if (typeof saved.is_shuffled === 'boolean') store.setIsShuffled(saved.is_shuffled);
-            if (typeof saved.volume === 'number')       store.setVolume(saved.volume);
-            if (saved.queue_tab)                        store.setQueueTab(saved.queue_tab);
-          }
+          if (saved) applySession(saved as Record<string, unknown>, true);
+        } else {
+          // Fall back to localStorage for unauthenticated users
+          try {
+            const raw = localStorage.getItem('airwave_session_v1');
+            if (raw) {
+              const saved = JSON.parse(raw) as Record<string, unknown>;
+              applySession(saved, false);
+            }
+          } catch (e) { console.warn('localStorage restore error:', e); }
         }
       } catch (e) {
         console.error('Load data error:', e);
@@ -104,25 +128,31 @@ export default function HomePage() {
     if (sessionSaveTimer.current) clearTimeout(sessionSaveTimer.current);
     sessionSaveTimer.current = setTimeout(async () => {
       const state = useAppStore.getState();
+      const payload = {
+        discographyTracks: state.discographyTracks,
+        discographyArtist: state.discographyArtist,
+        discographyQuery:  state.discographyQuery,
+        curatedTracks:     state.curatedTracks,
+        currentPrompt:     state.currentPrompt,
+        queue:             state.queue,
+        playedTracks:      state.playedTracks,
+        skippedTracks:     state.skippedTracks,
+        isShuffled:        state.isShuffled,
+        volume:            state.volume,
+        queueTab:          state.queueTab,
+        activeSource:      state.activeSource,
+        activeIndex:       state.activeIndex,
+      };
+      // Always persist to localStorage (works for all users, including unauthenticated)
+      try {
+        localStorage.setItem('airwave_session_v1', JSON.stringify(payload));
+      } catch (e) { console.warn('localStorage save error:', e); }
+      // Also try server-side session (requires auth)
       try {
         await fetch('/api/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            discographyTracks: state.discographyTracks,
-            discographyArtist: state.discographyArtist,
-            discographyQuery:  state.discographyQuery,
-            curatedTracks:     state.curatedTracks,
-            currentPrompt:     state.currentPrompt,
-            queue:             state.queue,
-            playedTracks:      state.playedTracks,
-            skippedTracks:     state.skippedTracks,
-            isShuffled:        state.isShuffled,
-            volume:            state.volume,
-            queueTab:          state.queueTab,
-            activeSource:      state.activeSource,
-            activeIndex:       state.activeIndex,
-          }),
+          body: JSON.stringify(payload),
         });
       } catch (e) { console.error('Session save error:', e); }
     }, 800);
@@ -250,7 +280,7 @@ export default function HomePage() {
           {/* ── Center column: Player on top, Queue below (CSS grid split) ── */}
           <div
             className="flex-1 overflow-hidden"
-            style={{ minWidth: 320, display: 'grid', gridTemplateRows: '38fr 62fr' }}
+            style={{ minWidth: 320, display: 'grid', gridTemplateRows: '25fr 75fr' }}
           >
             {/* Player */}
             <div className="overflow-y-auto" style={{ borderBottom: '1px solid #DCDBD7' }}>

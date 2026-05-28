@@ -44,6 +44,7 @@ function TrackRow({
   isLiked,
   isDisliked,
   onStartRadio,
+  onArtistClick,
 }: {
   track: CuratedTrack;
   isActive?: boolean;
@@ -59,6 +60,7 @@ function TrackRow({
   isLiked?: boolean;
   isDisliked?: boolean;
   onStartRadio?: () => void;
+  onArtistClick?: () => void;
 }) {
   return (
     <div
@@ -105,10 +107,32 @@ function TrackRow({
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5">
-          <p className="text-sm font-semibold truncate" style={{ color: '#131313' }}>{track.track}</p>
+          {onPlay ? (
+            <button
+              onClick={onPlay}
+              className="text-sm font-semibold truncate text-left leading-tight hover:opacity-70 transition-opacity"
+              style={{ color: isActive ? '#FF4D3D' : '#131313' }}
+              title="Play"
+            >
+              {track.track}
+            </button>
+          ) : (
+            <p className="text-sm font-semibold truncate" style={{ color: '#131313' }}>{track.track}</p>
+          )}
           <StatusBadge status={track.status} />
         </div>
-        <p className="text-xs truncate" style={{ color: '#9A9A9A' }}>{track.artist}</p>
+        {onArtistClick ? (
+          <button
+            onClick={onArtistClick}
+            className="text-xs truncate text-left hover:opacity-70 transition-opacity hover:underline"
+            style={{ color: '#9A9A9A' }}
+            title={`Browse ${track.artist} discography`}
+          >
+            {track.artist}
+          </button>
+        ) : (
+          <p className="text-xs truncate" style={{ color: '#9A9A9A' }}>{track.artist}</p>
+        )}
       </div>
 
       {track.album && <Chip size="sm" variant="default">{track.album}</Chip>}
@@ -159,8 +183,9 @@ function TrackRow({
         {onPlay && (
           <button
             onClick={onPlay}
-            className={`transition-opacity ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+            className="transition-opacity hover:opacity-70"
             style={{ color: '#FF4D3D' }}
+            title={isActive && isPlaying ? 'Pause' : 'Play'}
           >
             {isActive && isPlaying
               ? <Pause size={18} fill="#FF4D3D" />
@@ -186,6 +211,7 @@ export function Queue({ desktopMode = false }: { desktopMode?: boolean }) {
     queueTab, setQueueTab, queueSort, sortQueueBy,
     library, likeTrack, unlikeTrack, dislikeTrack, undislikeTrack,
     setCurrentPrompt, setAddToPlaylistTrack,
+    setDiscographyTracks, setDiscographyArtist, setDiscographyQuery,
   } = useAppStore();
 
   const getCurrentTrack = useAppStore((s) => s.getCurrentTrack);
@@ -383,6 +409,12 @@ export function Queue({ desktopMode = false }: { desktopMode?: boolean }) {
                           onLike={() => likedSet.has(tid) ? unlikeTrack(tid) : likeTrack(track)}
                           onDislike={() => dislikedSet.has(tid) ? undislikeTrack(tid) : dislikeTrack(tid)}
                           onStartRadio={() => handleStartRadio(track)}
+                          onArtistClick={() => {
+                            setDiscographyTracks([]);
+                            setDiscographyArtist(null);
+                            setDiscographyQuery(track.artist);
+                            setActiveScreen('library');
+                          }}
                         />
                       </div>
                     </div>
@@ -412,6 +444,7 @@ export function Queue({ desktopMode = false }: { desktopMode?: boolean }) {
                     isDisliked={dislikedSet.has(tid)}
                     onLike={() => likedSet.has(tid) ? unlikeTrack(tid) : likeTrack(track)}
                     onDislike={() => dislikedSet.has(tid) ? undislikeTrack(tid) : dislikeTrack(tid)}
+                    onArtistClick={() => { setDiscographyTracks([]); setDiscographyArtist(null); setDiscographyQuery(track.artist); setActiveScreen('library'); }}
                   />
                 );
               })
@@ -438,6 +471,7 @@ export function Queue({ desktopMode = false }: { desktopMode?: boolean }) {
                     isDisliked={dislikedSet.has(tid)}
                     onLike={() => likedSet.has(tid) ? unlikeTrack(tid) : likeTrack(track)}
                     onDislike={() => dislikedSet.has(tid) ? undislikeTrack(tid) : dislikeTrack(tid)}
+                    onArtistClick={() => { setDiscographyTracks([]); setDiscographyArtist(null); setDiscographyQuery(track.artist); setActiveScreen('library'); }}
                   />
                 );
               })
@@ -471,6 +505,7 @@ export function Queue({ desktopMode = false }: { desktopMode?: boolean }) {
                     isLiked
                     onLike={() => unlikeTrack(tid)}
                     onStartRadio={() => handleStartRadio(track)}
+                    onArtistClick={() => { setDiscographyTracks([]); setDiscographyArtist(null); setDiscographyQuery(track.artist); setActiveScreen('library'); }}
                   />
                 );
               })

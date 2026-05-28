@@ -186,7 +186,7 @@ export function Muse() {
     chatMessages, addChatMessage, clearChat,
     isCurating, setIsCurating, curationError, setCurationError,
     curatedTracks, setCuratedTracks, currentPrompt, setCurrentPrompt,
-    addToQueue, setActiveScreen,
+    addToQueue, playNow, setActiveScreen,
     settings, setAddToPlaylistTrack,
     // AI Advisor
     advisorData, setAdvisorData, isAnalyzing, setIsAnalyzing,
@@ -248,7 +248,7 @@ export function Muse() {
       const parts = bubble.value.split(' - ');
       const artist = parts[0]?.trim() || '';
       const track  = parts.slice(1).join(' - ').trim() || bubble.value;
-      addToQueue({ artist, track, status: 'idle' as const });
+      playNow({ artist, track, status: 'idle' as const });
     } else {
       const prompt = advisorData?.seedPrompt || `${bubble.value} similar music`;
       selfTrigger.current = true;
@@ -453,21 +453,45 @@ export function Muse() {
                           </button>
                         )}
                       </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {items.map((bubble, i) => (
-                          <button
-                            key={i}
-                            onClick={() => handleBubbleClick(bubble)}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-all hover:opacity-80 active:scale-95"
-                            style={{ background: bg, color }}
-                          >
-                            {key === 'artist' && '👤 '}
-                            {key === 'era'    && '⏱ '}
-                            {key === 'song'   && '🎵 '}
-                            {bubble.value}
-                          </button>
-                        ))}
-                      </div>
+                      {key === 'song' ? (
+                        <div className="flex flex-col gap-1.5 w-full">
+                          {items.map((bubble, i) => {
+                            const parts  = bubble.value.split(' - ');
+                            const sArtist = parts[0]?.trim() || '';
+                            const sTrack  = parts.slice(1).join(' - ').trim() || bubble.value;
+                            return (
+                              <button
+                                key={i}
+                                onClick={() => handleBubbleClick(bubble)}
+                                className="flex items-center gap-2 px-2 py-1.5 rounded-xl text-xs font-semibold transition-all hover:opacity-80 active:scale-95 text-left w-full"
+                                style={{ background: bg }}
+                              >
+                                <AlbumArt artist={sArtist} track={sTrack} size={28} rounded="lg" />
+                                <div className="flex-1 min-w-0">
+                                  <p className="truncate font-semibold" style={{ color }}>{sTrack}</p>
+                                  <p className="truncate text-[10px] opacity-70" style={{ color }}>{sArtist}</p>
+                                </div>
+                                <Play size={11} fill={color} color={color} style={{ flexShrink: 0, opacity: 0.7 }} />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-1.5">
+                          {items.map((bubble, i) => (
+                            <button
+                              key={i}
+                              onClick={() => handleBubbleClick(bubble)}
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-all hover:opacity-80 active:scale-95"
+                              style={{ background: bg, color }}
+                            >
+                              {key === 'artist' && '👤 '}
+                              {key === 'era'    && '⏱ '}
+                              {bubble.value}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

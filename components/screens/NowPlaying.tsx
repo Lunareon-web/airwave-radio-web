@@ -225,7 +225,7 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
 
       {/* ── Video Mode ── */}
       {settings.playbackMode === 'video' && track?.videoId && ownsPlayer && (
-        <div className="mb-4 rounded-2xl overflow-hidden" style={{ maxHeight: 220 }}>
+        <div className="mb-4 rounded-2xl overflow-hidden">
           <YTPlayer />
         </div>
       )}
