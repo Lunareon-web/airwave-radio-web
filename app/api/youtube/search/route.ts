@@ -1,56 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { sql } from '@/lib/db';
-
-/**
- * Module-level quota tracker.
- * Maps API key → timestamp when it was marked exhausted.
- * Auto-clears after 24 h (aligned with YouTube's daily quota reset).
- * NOTE: Resets on cold-start / redeployment — that's fine.
- */
-const quotaExhaustedAt = new Map<string, number>();
-
-function isExhausted(key: string): boolean {
-  const ts = quotaExhaustedAt.get(key);
-  if (!ts) return false;
-  if (Date.now() - ts > 24 * 60 * 60 * 1000) {
-    quotaExhaustedAt.delete(key);
-    return false;
-  }
-  return true;
-}
-
-function markExhausted(key: string): void {
-  console.warn(`[youtube] Key ...${key.slice(-6)} quota exhausted — switching to next key`);
-  quotaExhaustedAt.set(key, Date.now());
-}
-
-/** Collect all server-side keys from env vars (never sent to client). */
-function getServerKeys(): string[] {
-  const keys: string[] = [];
-  // Primary pool: YOUTUBE_API_KEY_1 … YOUTUBE_API_KEY_9
-  for (let i = 1; i <= 9; i++) {
-    const k = process.env[`YOUTUBE_API_KEY_${i}`];
-    if (k && !keys.includes(k)) keys.push(k);
-  }
-  // Backward compat: plain YOUTUBE_API_KEY
-  const legacy = process.env.YOUTUBE_API_KEY;
-  if (legacy && !keys.includes(legacy)) keys.push(legacy);
-  return keys;
-}
+import {
+  ensureQuotaLoaded,
+  isExhausted,
+  markExhausted,
+  getServerKeys,
+  type LabeledKey,
+} from '@/lib/youtube-quota';
 
 export async function GET(req: NextRequest) {
   try {
     const q = req.nextUrl.searchParams.get('q');
     if (!q) return NextResponse.json({ error: 'Query required' }, { status: 400 });
 
+    // Hydrate quota state from DB on cold-start (no-op if already loaded)
+    await ensureQuotaLoaded();
+
     // User key (from Settings UI) has highest priority; server keys are the fallback pool.
     const userKey    = req.headers.get('X-YouTube-Key') || '';
     const serverKeys = getServerKeys();
 
     // Deduplicated candidate list: user key first, then server keys
-    const candidates = [
-      ...( userKey ? [userKey] : [] ),
-      ...serverKeys.filter(k => k !== userKey),
+    const candidates: LabeledKey[] = [
+      ...(userKey ? [{ key: userKey, label: 'user' }] : []),
+      ...serverKeys.filter(({ key }) => key !== userKey),
     ];
 
     if (candidates.length === 0) {
@@ -60,7 +33,7 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // ── Cache lookup ────────────────────────────────────────────────────────
+    // ── Cache lookup ──────────────────────────────────────────────────────────
     try {
       const cached = await sql`
         SELECT video_id, title, thumbnail FROM youtube_cache WHERE search_query = ${q}
@@ -76,10 +49,10 @@ export async function GET(req: NextRequest) {
       // Table may not exist yet — skip cache, proceed to live search
     }
 
-    // ── Try each key in order ───────────────────────────────────────────────
+    // ── Try each key in order ─────────────────────────────────────────────────
     let lastError = '';
 
-    for (const key of candidates) {
+    for (const { key, label } of candidates) {
       if (isExhausted(key)) continue;
 
       const url =
@@ -92,13 +65,17 @@ export async function GET(req: NextRequest) {
       if (!res.ok) {
         const errText = await res.text();
 
-        // Detect quota exhaustion (403 quotaExceeded / dailyLimitExceeded)
+        // Detect quota exhaustion: 403 quotaExceeded / dailyLimitExceeded / rateLimitExceeded
         if (res.status === 403) {
           try {
             const errJson = JSON.parse(errText);
             const reason  = errJson?.error?.errors?.[0]?.reason ?? '';
-            if (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded') {
-              markExhausted(key);
+            if (
+              reason === 'quotaExceeded'      ||
+              reason === 'dailyLimitExceeded'  ||
+              reason === 'rateLimitExceeded'
+            ) {
+              markExhausted(key, label);
               lastError = 'quota exhausted';
               continue; // try next key
             }
@@ -123,7 +100,7 @@ export async function GET(req: NextRequest) {
         (item.snippet.thumbnails?.medium?.url  as string) ||
         (item.snippet.thumbnails?.default?.url as string) || '';
 
-      // ── Cache result (non-fatal) ────────────────────────────────────────
+      // ── Cache result (non-fatal) ──────────────────────────────────────────
       try {
         await sql`
           INSERT INTO youtube_cache (search_query, video_id, title, thumbnail)
@@ -139,8 +116,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ videoId, title, thumbnail });
     }
 
-    // ── All candidates exhausted or failed ─────────────────────────────────
-    const allExhausted = candidates.every(isExhausted);
+    // ── All candidates exhausted or failed ────────────────────────────────────
+    const allExhausted = candidates.every(({ key }) => isExhausted(key));
     if (allExhausted) {
       return NextResponse.json(
         { error: 'All YouTube API keys have reached their daily quota. Please wait until midnight Pacific or add another key.' },
