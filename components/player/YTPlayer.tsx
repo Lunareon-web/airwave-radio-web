@@ -23,6 +23,8 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   const ytReadyRef = useRef(false);
   // Prevents firing playNext() multiple times in the 2s pre-end window
   const nearEndFiredRef = useRef(false);
+  // Counts consecutive 429s so we stop retrying after 5 in a row
+  const consecutive429Ref = useRef(0);
   // Tracks the last YT-reported time & wall-clock stamp for local interpolation
   const lastYtRef = useRef<{ time: number; ms: number }>({ time: 0, ms: 0 });
   const {
@@ -181,10 +183,18 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
         setCurrentTime(estimated);
       }
 
-      // Safety-net: if we're 5+ seconds past the known duration and YT hasn't
-      // fired state=0 (events throttled / blocked), trigger auto-advance here.
       const dur = useAppStore.getState().duration;
+
+      // Safety-net 1: 5+ s past the known duration (YT state=0 never arrived)
       if (dur > 0 && estimated > dur + 5 && !nearEndFiredRef.current) {
+        nearEndFiredRef.current = true;
+        useAppStore.getState().playNext();
+      }
+
+      // Safety-net 2: duration never received at all (Android iframe throttling).
+      // After 12 min of playing without a known end, advance to the next track.
+      // Keeps the radio moving even when postMessage events are fully blocked.
+      if (dur === 0 && Date.now() - startMs > 12 * 60_000 && !nearEndFiredRef.current) {
         nearEndFiredRef.current = true;
         useAppStore.getState().playNext();
       }
@@ -231,6 +241,7 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
         .then(async (r) => ({ httpStatus: r.status, data: await r.json() as Record<string, unknown> }))
         .then(({ httpStatus, data }) => {
           if (data.videoId) {
+            consecutive429Ref.current = 0; // reset on success
             updateTrackInSource(activeSource, i, {
               status: 'ready',
               videoId: data.videoId as string,
@@ -239,11 +250,19 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
             });
             if (i === activeIndex) setResolveMessage(`▶ ${(data.title as string) || track.track}`);
           } else if (httpStatus === 429) {
-            // All API keys have hit their daily quota — stop the skip loop.
-            // Continuing to skip is pointless since every track would fail identically.
+            consecutive429Ref.current += 1;
             updateTrackInSource(activeSource, i, { status: 'failed' });
             if (i === activeIndex) {
-              setResolveMessage('⚠ YouTube-Kontingent erschöpft — bitte API-Key prüfen');
+              if (consecutive429Ref.current >= 5) {
+                // 5 consecutive 429s — truly exhausted, stop the loop
+                setResolveMessage('⚠ YouTube-Kontingent erschöpft — bitte API-Key prüfen');
+              } else {
+                // Try the next track — it might be cached or resolved via Invidious
+                setResolveMessage(`⚠ Quota erschöpft — überspringe Track…`);
+                setTimeout(() => {
+                  if (useAppStore.getState().activeIndex === i) playNext();
+                }, 2500);
+              }
             }
           } else {
             updateTrackInSource(activeSource, i, { status: 'failed' });

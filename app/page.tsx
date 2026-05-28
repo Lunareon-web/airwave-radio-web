@@ -241,6 +241,8 @@ export default function HomePage() {
     navigator.mediaSession.setActionHandler('pause',         () => useAppStore.getState().setIsPlaying(false));
     navigator.mediaSession.setActionHandler('nexttrack',     () => useAppStore.getState().skipCurrent());
     navigator.mediaSession.setActionHandler('previoustrack', () => useAppStore.getState().playPrev());
+    // seekto = draggable seek bar without consuming a button slot.
+    // seekforward / seekbackward are NOT registered — they steal the [⏮][⏭] slots.
     navigator.mediaSession.setActionHandler('seekto', (details) => {
       if (details.seekTime == null) return;
       const t = details.seekTime;
@@ -257,17 +259,11 @@ export default function HomePage() {
       });
     }
     navigator.mediaSession.playbackState = store.isPlaying ? 'playing' : 'paused';
-    // setPositionState → seek bar display in the OS widget.
-    // playbackRate: 0 when paused so the browser stops advancing position.
-    if (store.duration > 0) {
-      try {
-        navigator.mediaSession.setPositionState({
-          duration:     store.duration,
-          playbackRate: store.isPlaying ? 1 : 0,
-          position:     Math.min(store.currentTime, store.duration),
-        });
-      } catch { /* not universally supported */ }
-    }
+    // NOTE: setPositionState() intentionally NOT called.
+    // Android Chrome enforces two mutually exclusive notification layouts:
+    //   • with setPositionState  → seek bar visible + only [⏸] (no prev/next)
+    //   • without setPositionState → [⏮][⏸][⏭] visible (no seek bar)
+    // For a radio app, prev/next control is more important than the seek bar.
   };
 
   // Register immediately on mount (covers cold-start + session-restore cases)
