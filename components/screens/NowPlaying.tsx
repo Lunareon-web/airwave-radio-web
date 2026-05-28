@@ -14,7 +14,6 @@ import { Vinyl } from '@/components/ui/Vinyl';
 import { Chip } from '@/components/ui/Chip';
 import { FreqBars } from '@/components/ui/FreqBars';
 import { YTPlayer, ytCommand } from '@/components/player/YTPlayer';
-import type { MusicBubble } from '@/lib/types';
 
 const SOURCE_LABEL: Record<string, string> = {
   discography: 'Discography',
@@ -52,7 +51,6 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
     getCurrentTrack, activeSource,
     likeTrack, unlikeTrack, dislikeTrack, undislikeTrack,
     library, settings, setShowSettings,
-    advisorData, setAdvisorData, isAnalyzing, setIsAnalyzing,
     setCurrentPrompt, setActiveScreen,
     isShuffled, setIsShuffled,
     volume, setVolume, isMuted, setIsMuted,
@@ -92,38 +90,6 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
     setActiveScreen('muse');
   };
 
-  const analyzeTrack = async () => {
-    if (!track || isAnalyzing) return;
-    setIsAnalyzing(true);
-    try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (settings.geminiKey) headers['X-Gemini-Key'] = settings.geminiKey;
-      const res = await fetch('/api/advisor/analyze', {
-        method: 'POST', headers,
-        body: JSON.stringify({ artist: track.artist, track: track.track }),
-      });
-      setAdvisorData(await res.json());
-    } catch (e) { console.error('Advisor error:', e); }
-    finally { setIsAnalyzing(false); }
-  };
-
-  const handleBubbleClick = (bubble: MusicBubble) => {
-    const store = useAppStore.getState();
-    if (bubble.type === 'artist') {
-      store.setDiscographyQuery(bubble.value);
-      store.setActiveScreen('library');
-    } else if (bubble.type === 'song') {
-      // label format: "Song Title (Artist Name)"  or value: "Artist - Track"
-      const dashParts = bubble.value.split(' - ');
-      const artist = dashParts[0]?.trim() || '';
-      const trackName = dashParts.slice(1).join(' - ').trim() || bubble.label;
-      store.addToQueue({ artist, track: trackName, status: 'idle' as const });
-    } else {
-      const prompt = advisorData?.seedPrompt || `${bubble.label}: ${bubble.value} music`;
-      store.setCurrentPrompt(prompt);
-      store.setActiveScreen('muse');
-    }
-  };
 
   /* ── Seek bar style ── */
   const seekStyle = {
@@ -259,7 +225,7 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
 
       {/* ── Video Mode ── */}
       {settings.playbackMode === 'video' && track?.videoId && ownsPlayer && (
-        <div className="mb-4 rounded-2xl overflow-hidden" style={{ maxHeight: '42vh' }}>
+        <div className="mb-4 rounded-2xl overflow-hidden" style={{ maxHeight: 220 }}>
           <YTPlayer />
         </div>
       )}
@@ -405,149 +371,6 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
       )}
 
       {/* ── AI Advisor ── */}
-      {/* ── AI Music Advisor ── */}
-      {track && (
-        <div
-          className="rounded-2xl p-4 mb-4"
-          style={{ background: '#FFFFFF', boxShadow: '0 2px 12px rgba(14,14,14,0.06)' }}
-        >
-          {/* Header */}
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: '#FF4D3D' }}>
-                <Sparkles size={13} color="white" />
-              </div>
-              <div>
-                <p className="text-sm font-bold" style={{ color: '#131313' }}>AI Music Curator</p>
-                {advisorData && (
-                  <p className="text-[10px]" style={{ color: '#9A9A9A' }}>
-                    {track.artist} · {track.track}
-                  </p>
-                )}
-              </div>
-            </div>
-            <button
-              onClick={analyzeTrack}
-              disabled={isAnalyzing}
-              className="text-xs font-semibold px-3 py-1.5 rounded-full transition-opacity hover:opacity-80 disabled:opacity-50"
-              style={{ background: 'rgba(255,77,61,0.12)', color: '#FF4D3D' }}
-            >
-              {isAnalyzing
-                ? <><Loader2 size={11} className="inline mr-1 animate-spin" />Analyzing…</>
-                : advisorData ? 'Refresh' : 'Analyze'}
-            </button>
-          </div>
-
-          <AnimatePresence>
-            {advisorData && (() => {
-              // Group bubbles by type
-              const byType = advisorData.bubbles.reduce<Record<string, typeof advisorData.bubbles>>((acc, b) => {
-                (acc[b.type] = acc[b.type] || []).push(b);
-                return acc;
-              }, {});
-
-              const SECTIONS = [
-                {
-                  key: 'genre', label: 'GENRE & STIL',
-                  color: '#3B82F6', bg: 'rgba(59,130,246,0.10)',
-                  action: null,
-                },
-                {
-                  key: 'mood', label: 'STIMMUNG',
-                  color: '#F59E0B', bg: 'rgba(245,158,11,0.10)',
-                  action: null,
-                },
-                {
-                  key: 'artist', label: 'ÄHNLICHE KÜNSTLER',
-                  color: '#10B981', bg: 'rgba(16,185,129,0.10)',
-                  action: { label: '· Discography laden', onClick: (val: string) => {
-                    const store = useAppStore.getState();
-                    store.setDiscographyTracks([]);
-                    store.setDiscographyArtist(null);
-                    store.setDiscographyQuery(val);
-                    store.setActiveScreen('library');
-                  }},
-                },
-                {
-                  key: 'era', label: 'ÄRA & BEWEGUNG',
-                  color: '#EF4444', bg: 'rgba(239,68,68,0.10)',
-                  action: null,
-                },
-                {
-                  key: 'song', label: 'VERWANDTE SONGS',
-                  color: '#06B6D4', bg: 'rgba(6,182,212,0.10)',
-                  action: { label: '· sofort abspielen', onClick: (val: string) => handleBubbleClick({ type: 'song', label: 'Similar Song', value: val }) },
-                },
-              ];
-
-              return (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="space-y-3"
-                >
-                  {SECTIONS.map(({ key, label, color, bg, action }) => {
-                    const items = byType[key];
-                    if (!items?.length) return null;
-                    return (
-                      <div key={key}>
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <p className="text-[10px] font-bold tracking-wider" style={{ color: '#9A9A9A' }}>
-                            {label}
-                          </p>
-                          {action && (
-                            <button
-                              className="text-[10px] font-semibold transition-opacity hover:opacity-70"
-                              style={{ color }}
-                              onClick={() => action.onClick(items[0]?.value || '')}
-                            >
-                              {action.label}
-                            </button>
-                          )}
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {items.map((bubble, i) => (
-                            <button
-                              key={i}
-                              onClick={() => key === 'artist'
-                                ? action?.onClick(bubble.value)
-                                : handleBubbleClick(bubble)
-                              }
-                              className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-all hover:opacity-80 active:scale-95"
-                              style={{ background: bg, color }}
-                            >
-                              {key === 'artist' && '👤 '}
-                              {key === 'era'    && '⏱ '}
-                              {key === 'song'   && '🎵 '}
-                              {bubble.value}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {/* Seed prompt chip */}
-                  {advisorData.seedPrompt && (
-                    <button
-                      onClick={() => {
-                        useAppStore.getState().setCurrentPrompt(advisorData!.seedPrompt!);
-                        useAppStore.getState().setActiveScreen('muse');
-                      }}
-                      className="w-full mt-1 py-2 rounded-xl text-xs font-semibold text-center transition-all hover:opacity-80"
-                      style={{ background: 'rgba(255,77,61,0.08)', color: '#FF4D3D' }}
-                    >
-                      <Sparkles size={11} className="inline mr-1" />
-                      Ähnliches Radio starten
-                    </button>
-                  )}
-                </motion.div>
-              );
-            })()}
-          </AnimatePresence>
-        </div>
-      )}
 
       {/* Hidden audio iframe — only ONE instance per page */}
       {settings.playbackMode === 'audio' && ownsPlayer && <YTPlayer />}

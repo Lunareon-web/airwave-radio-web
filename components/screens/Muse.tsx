@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, Plus, Sparkles, Play, Loader2, ListMusic, ChevronDown, ChevronUp, ListPlus } from 'lucide-react';
+import { Send, Plus, Sparkles, Play, Pause, Loader2, ListMusic, ChevronDown, ChevronUp, ListPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
 import { AlbumArt } from '@/components/ui/AlbumArt';
 import { Chip } from '@/components/ui/Chip';
-import type { ChatMessage, CuratedTrack } from '@/lib/types';
+import type { ChatMessage, CuratedTrack, MusicBubble } from '@/lib/types';
 
 const QUICK_CHIPS = [
   'Chill Sunday morning',
@@ -188,21 +188,80 @@ export function Muse() {
     curatedTracks, setCuratedTracks, currentPrompt, setCurrentPrompt,
     addToQueue, setActiveScreen,
     settings, setAddToPlaylistTrack,
+    // AI Advisor
+    advisorData, setAdvisorData, isAnalyzing, setIsAnalyzing,
+    getCurrentTrack,
+    // Discography
+    setDiscographyTracks, setDiscographyArtist, setDiscographyQuery,
   } = useAppStore();
+
+  const currentTrack = getCurrentTrack();
 
   const [input, setInput] = useState(currentPrompt || '');
   const [isTyping, setIsTyping] = useState(false);
+  const [advisorOpen, setAdvisorOpen] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Prevents auto-curate loop when Muse itself sets currentPrompt
+  const selfTrigger = useRef(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages, isTyping]);
 
+  // ── Auto-curate when currentPrompt is set externally (e.g. Start Radio) ──
+  useEffect(() => {
+    if (selfTrigger.current) { selfTrigger.current = false; return; }
+    if (!currentPrompt) return;
+    setInput(currentPrompt);
+    const alreadyDone = chatMessages.some(
+      (m) => m.role === 'user' && m.content === currentPrompt
+    );
+    if (!alreadyDone) curate(currentPrompt);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPrompt]);
+
+  // ── AI Advisor ────────────────────────────────────────────────────────────
+  const analyzeTrack = async () => {
+    if (!currentTrack || isAnalyzing) return;
+    setIsAnalyzing(true);
+    setAdvisorOpen(true);
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (settings.geminiKey) headers['X-Gemini-Key'] = settings.geminiKey;
+      const res = await fetch('/api/advisor/analyze', {
+        method: 'POST', headers,
+        body: JSON.stringify({ artist: currentTrack.artist, track: currentTrack.track }),
+      });
+      setAdvisorData(await res.json());
+    } catch (e) { console.error('Advisor error:', e); }
+    finally { setIsAnalyzing(false); }
+  };
+
+  const handleBubbleClick = (bubble: MusicBubble) => {
+    if (bubble.type === 'artist') {
+      setDiscographyTracks([]);
+      setDiscographyArtist(null);
+      setDiscographyQuery(bubble.value);
+      setActiveScreen('library');
+    } else if (bubble.type === 'song') {
+      const parts = bubble.value.split(' - ');
+      const artist = parts[0]?.trim() || '';
+      const track  = parts.slice(1).join(' - ').trim() || bubble.value;
+      addToQueue({ artist, track, status: 'idle' as const });
+    } else {
+      const prompt = advisorData?.seedPrompt || `${bubble.value} similar music`;
+      selfTrigger.current = true;
+      setCurrentPrompt(prompt);
+      curate(prompt);
+    }
+  };
+
   const curate = async (prompt: string) => {
     if (!prompt.trim() || isCurating) return;
     const trimmed = prompt.trim();
     setInput('');
+    selfTrigger.current = true;   // prevent auto-curate loop
     setCurrentPrompt(trimmed);
 
     addChatMessage({ id: newMsgId(), role: 'user', content: trimmed, timestamp: Date.now() });
@@ -296,6 +355,138 @@ export function Muse() {
             Clear
           </button>
         )}
+      </div>
+
+      {/* ── AI Music Curator panel ──────────────────────────────────────────── */}
+      <div style={{ borderBottom: '1px solid #DCDBD7', flexShrink: 0 }}>
+        {/* Compact always-visible row */}
+        <div className="flex items-center gap-2 px-4 py-2.5">
+          <div
+            className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
+            style={{ background: 'rgba(255,77,61,0.12)' }}
+          >
+            <Sparkles size={13} color="#FF4D3D" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold" style={{ color: '#131313' }}>AI Music Curator</p>
+            {currentTrack
+              ? <p className="text-[10px] truncate" style={{ color: '#9A9A9A' }}>{currentTrack.artist} · {currentTrack.track}</p>
+              : <p className="text-[10px]" style={{ color: '#C2C0BB' }}>No track playing</p>
+            }
+          </div>
+          <button
+            onClick={analyzeTrack}
+            disabled={isAnalyzing || !currentTrack}
+            className="text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0 disabled:opacity-40 transition-opacity hover:opacity-80"
+            style={{ background: 'rgba(255,77,61,0.12)', color: '#FF4D3D' }}
+          >
+            {isAnalyzing
+              ? <Loader2 size={11} className="animate-spin" />
+              : advisorData ? 'Neu' : 'Analyze'}
+          </button>
+          {advisorData && (
+            <button
+              onClick={() => setAdvisorOpen((v) => !v)}
+              style={{ color: '#9A9A9A', flexShrink: 0 }}
+            >
+              {advisorOpen ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+            </button>
+          )}
+        </div>
+
+        {/* Expanded advisor data */}
+        <AnimatePresence>
+          {advisorData && advisorOpen && (() => {
+            const byType = advisorData.bubbles.reduce<Record<string, typeof advisorData.bubbles>>(
+              (acc, b) => { (acc[b.type] = acc[b.type] || []).push(b); return acc; }, {}
+            );
+            const SECTIONS = [
+              { key: 'genre',  label: 'GENRE & STIL',        color: '#3B82F6', bg: 'rgba(59,130,246,0.10)' },
+              { key: 'mood',   label: 'STIMMUNG',             color: '#F59E0B', bg: 'rgba(245,158,11,0.10)' },
+              { key: 'artist', label: 'ÄHNLICHE KÜNSTLER',   color: '#10B981', bg: 'rgba(16,185,129,0.10)' },
+              { key: 'era',    label: 'ÄRA & BEWEGUNG',       color: '#EF4444', bg: 'rgba(239,68,68,0.10)' },
+              { key: 'song',   label: 'VERWANDTE SONGS',      color: '#06B6D4', bg: 'rgba(6,182,212,0.10)' },
+            ];
+            return (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="px-4 pb-3 space-y-2.5 overflow-hidden"
+              >
+                {/* Track context note */}
+                {advisorData && currentTrack && (
+                  <p className="text-[10px] italic" style={{ color: '#C2C0BB' }}>
+                    Analyse für anderen Track — oben neu starten
+                  </p>
+                )}
+
+                {SECTIONS.map(({ key, label, color, bg }) => {
+                  const items = byType[key];
+                  if (!items?.length) return null;
+                  return (
+                    <div key={key}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="text-[10px] font-bold tracking-wider" style={{ color: '#9A9A9A' }}>
+                          {label}
+                        </p>
+                        {key === 'artist' && (
+                          <button
+                            className="text-[10px] font-semibold hover:opacity-70"
+                            style={{ color: '#10B981' }}
+                            onClick={() => {
+                              if (items[0]) handleBubbleClick({ type: 'artist', label: 'Similar Artist', value: items[0].value });
+                            }}
+                          >
+                            · Discography laden
+                          </button>
+                        )}
+                        {key === 'song' && (
+                          <button
+                            className="text-[10px] font-semibold hover:opacity-70"
+                            style={{ color: '#06B6D4' }}
+                            onClick={() => {
+                              if (items[0]) handleBubbleClick({ type: 'song', label: 'Similar Song', value: items[0].value });
+                            }}
+                          >
+                            · sofort abspielen
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {items.map((bubble, i) => (
+                          <button
+                            key={i}
+                            onClick={() => handleBubbleClick(bubble)}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-all hover:opacity-80 active:scale-95"
+                            style={{ background: bg, color }}
+                          >
+                            {key === 'artist' && '👤 '}
+                            {key === 'era'    && '⏱ '}
+                            {key === 'song'   && '🎵 '}
+                            {bubble.value}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Start similar radio */}
+                {advisorData.seedPrompt && (
+                  <button
+                    onClick={() => { selfTrigger.current = true; setCurrentPrompt(advisorData!.seedPrompt!); curate(advisorData!.seedPrompt!); }}
+                    className="w-full py-2 rounded-xl text-xs font-semibold text-center transition-all hover:opacity-80 mt-1"
+                    style={{ background: 'rgba(255,77,61,0.08)', color: '#FF4D3D' }}
+                  >
+                    <Sparkles size={11} className="inline mr-1" />
+                    Ähnliches Radio starten
+                  </button>
+                )}
+              </motion.div>
+            );
+          })()}
+        </AnimatePresence>
       </div>
 
       {/* Chat thread */}

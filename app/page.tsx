@@ -250,7 +250,7 @@ export default function HomePage() {
           {/* ── Center column: Player on top, Queue below (CSS grid split) ── */}
           <div
             className="flex-1 overflow-hidden"
-            style={{ minWidth: 320, display: 'grid', gridTemplateRows: '55fr 45fr' }}
+            style={{ minWidth: 320, display: 'grid', gridTemplateRows: '38fr 62fr' }}
           >
             {/* Player */}
             <div className="overflow-y-auto" style={{ borderBottom: '1px solid #DCDBD7' }}>

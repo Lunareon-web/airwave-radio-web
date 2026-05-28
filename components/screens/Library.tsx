@@ -37,6 +37,7 @@ function LibTrackRow({
   isPlaying?: boolean;
 }) {
   const { artist, track: name, coverArt, album, year } = track;
+  const store = useAppStore.getState;
   return (
     <div
       className="flex items-center gap-3 py-2.5 px-1 group rounded-xl transition-all"
@@ -46,7 +47,20 @@ function LibTrackRow({
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold truncate" style={{ color: '#131313' }}>{name}</p>
         <div className="flex items-center gap-2">
-          <p className="text-xs truncate" style={{ color: '#9A9A9A' }}>{artist}</p>
+          {/* Artist name: click to trigger discography search */}
+          <button
+            className="text-xs truncate text-left hover:underline transition-opacity hover:opacity-70"
+            style={{ color: '#9A9A9A', maxWidth: '120px' }}
+            title={`Search ${artist} discography`}
+            onClick={() => {
+              const s = store();
+              s.setDiscographyTracks([]);
+              s.setDiscographyArtist(null);
+              s.setDiscographyQuery(artist);
+            }}
+          >
+            {artist}
+          </button>
           {album && <Chip size="sm" variant="default">{album}</Chip>}
           {year && <span className="text-xs" style={{ color: '#C2C0BB' }}>{year}</span>}
         </div>
