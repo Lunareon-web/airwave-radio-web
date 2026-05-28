@@ -102,17 +102,21 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
     else { sendCommand('unMute'); sendCommand('setVolume', [vol]); }
   }, [volume, isMuted, videoId, sendCommand]);
 
-  // Auto-resolve video IDs for current + next 3 tracks
+  // Auto-resolve video IDs for current + next 5 tracks
   useEffect(() => {
     if (!activeSource || activeIndex < 0) return;
     const tracks = getSourceTracks(activeSource);
     const storeSettings = useAppStore.getState().settings;
 
-    for (let i = activeIndex; i < Math.min(activeIndex + 4, tracks.length); i++) {
+    for (let i = activeIndex; i < Math.min(activeIndex + 6, tracks.length); i++) {
       const track = tracks[i];
-      if (!track || track.status !== 'idle') continue;
+      if (!track) continue;
+      // For the current (active) track: also retry 'failed' status so a quota
+      // error on a previous attempt doesn't permanently block playback.
+      const isActive = i === activeIndex;
+      if (isActive ? track.status === 'searching' || track.status === 'ready' : track.status !== 'idle') continue;
       updateTrackInSource(activeSource, i, { status: 'searching' });
-      if (i === activeIndex) setResolveMessage(`Searching: ${track.track}…`);
+      if (isActive) setResolveMessage(`Searching: ${track.track}…`);
 
       const query = track.search_term || `${track.artist} ${track.track} official audio`;
       const headers: Record<string, string> = {};

@@ -5,7 +5,6 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Sparkles, Settings } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { NowPlaying } from '@/components/screens/NowPlaying';
-import { BackgroundResolver } from '@/components/player/BackgroundResolver';
 import { Queue } from '@/components/screens/Queue';
 import { Muse } from '@/components/screens/Muse';
 import { Library as LibraryScreen } from '@/components/screens/Library';
@@ -364,9 +363,6 @@ export default function HomePage() {
       {/* Global overlays — shown over both layouts */}
       <SettingsPanel />
       <AddToPlaylistModal />
-
-      {/* Background resolver — eagerly fetches videoId + thumbnail for all idle tracks */}
-      <BackgroundResolver />
     </>
   );
 }
