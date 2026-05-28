@@ -9,7 +9,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 export function SettingsPanel() {
   const { showSettings, setShowSettings, settings, setSettings } = useAppStore();
   const [geminiKey, setGeminiKey] = useState(settings.geminiKey || '');
-  const [youtubeKey, setYoutubeKey] = useState(settings.youtubeKey || '');
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
@@ -17,7 +16,6 @@ export function SettingsPanel() {
     const updated = {
       ...settings,
       geminiKey: geminiKey || undefined,
-      youtubeKey: youtubeKey || undefined,
     };
     setSettings(updated);
     try {
@@ -85,36 +83,25 @@ export function SettingsPanel() {
 
             {/* API Keys */}
             <section className="mb-6">
-              <h3 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: '#9A9A9A' }}>
+              <h3 className="text-xs font-semibold uppercase tracking-wider mb-1" style={{ color: '#9A9A9A' }}>
                 API Keys
               </h3>
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs font-medium mb-1.5 flex items-center gap-1.5" style={{ color: '#6B6B6B' }}>
-                    <Key size={12} /> Gemini API Key
-                  </label>
-                  <input
-                    type="password"
-                    value={geminiKey}
-                    onChange={(e) => setGeminiKey(e.target.value)}
-                    placeholder="AIzaSy..."
-                    className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
-                    style={{ background: '#F0EFEC', color: '#131313', border: '1.5px solid #DCDBD7' }}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium mb-1.5 flex items-center gap-1.5" style={{ color: '#6B6B6B' }}>
-                    <Key size={12} /> YouTube API Key
-                  </label>
-                  <input
-                    type="password"
-                    value={youtubeKey}
-                    onChange={(e) => setYoutubeKey(e.target.value)}
-                    placeholder="AIzaSy..."
-                    className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
-                    style={{ background: '#F0EFEC', color: '#131313', border: '1.5px solid #DCDBD7' }}
-                  />
-                </div>
+              <p className="text-xs mb-3" style={{ color: '#B0AFA9' }}>
+                YouTube keys are managed server-side. Gemini key is optional if a server key is configured.
+              </p>
+              <div>
+                <label className="text-xs font-medium mb-1.5 flex items-center gap-1.5" style={{ color: '#6B6B6B' }}>
+                  <Key size={12} /> Gemini API Key
+                  <span className="ml-auto font-normal" style={{ color: '#B0AFA9' }}>Optional</span>
+                </label>
+                <input
+                  type="password"
+                  value={geminiKey}
+                  onChange={(e) => setGeminiKey(e.target.value)}
+                  placeholder="AIzaSy… (leave empty to use server key)"
+                  className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
+                  style={{ background: '#F0EFEC', color: '#131313', border: '1.5px solid #DCDBD7' }}
+                />
               </div>
             </section>
 
