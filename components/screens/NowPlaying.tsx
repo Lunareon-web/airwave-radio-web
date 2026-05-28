@@ -30,6 +30,12 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+/** Shows '--:--' when duration isn't known yet (YT events pending). */
+function formatDuration(seconds: number): string {
+  if (!seconds || isNaN(seconds)) return '--:--';
+  return formatTime(seconds);
+}
+
 export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
   // ── Which instance should own the YTPlayer? ──────────────────────────────
   // Both desktop and mobile <NowPlaying> are always mounted (display:none/flex).
@@ -255,11 +261,104 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
           />
           <div className="flex justify-between -mt-1">
             <span className="text-[10px]" style={{ color: '#9A9A9A' }}>{formatTime(currentTime)}</span>
-            <span className="text-[10px]" style={{ color: '#9A9A9A' }}>{formatTime(duration)}</span>
+            <span className="text-[10px]" style={{ color: '#9A9A9A' }}>{formatDuration(duration)}</span>
           </div>
           <TransportRow light />
           <ShuffleVolumeRow light />
         </div>
+      </div>
+    );
+  }
+
+  // ── Desktop audio mode: compact player — no embedded queue ──────────────
+  // Queue is rendered separately in the grid cell below by page.tsx.
+  if (desktopMode && settings.playbackMode === 'audio') {
+    return (
+      <div className="flex flex-col">
+        {/* Status header */}
+        <div
+          className="flex items-center justify-between px-4 py-2"
+          style={{ borderBottom: '1px solid #DCDBD7' }}
+        >
+          <div className="flex items-center gap-2">
+            <FreqBars active={isPlaying} />
+            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#9A9A9A' }}>
+              Now Broadcasting
+            </span>
+            {activeSource && (
+              <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: '#C2C0BB' }}>
+                · {SOURCE_LABEL[activeSource]} · Audio
+              </span>
+            )}
+          </div>
+          <button
+            onClick={() => setShowSettings(true)}
+            className="w-7 h-7 rounded-full flex items-center justify-center transition-opacity hover:opacity-70"
+            style={{ background: '#E8E6E1', color: '#6B6B6B' }}
+          >
+            <Settings size={13} />
+          </button>
+        </div>
+
+        {/* Compact controls */}
+        <div className="px-4 py-3 flex flex-col gap-2">
+          {/* Track row: small vinyl + info */}
+          <div className="flex items-center gap-3">
+            <Vinyl isPlaying={isPlaying} size={52} coverArt={track?.coverArt} artist={track?.artist || ''} />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <p className="text-sm font-bold truncate" style={{ color: '#131313' }}>
+                  {track?.track || 'No track selected'}
+                </p>
+                {track && (
+                  <button
+                    onClick={() => setAddToPlaylistTrack(track)}
+                    title="Add to playlist"
+                    className="flex-shrink-0 hover:opacity-70 transition-opacity"
+                    style={{ color: '#9A9A9A' }}
+                  >
+                    <ListMusic size={13} />
+                  </button>
+                )}
+              </div>
+              {track?.artist ? (
+                <button
+                  className="text-xs truncate text-left hover:opacity-70 transition-opacity"
+                  style={{ color: '#9A9A9A' }}
+                  onClick={() => {
+                    const s = useAppStore.getState();
+                    s.setDiscographyTracks([]); s.setDiscographyArtist(null);
+                    s.setDiscographyQuery(track.artist); s.setActiveScreen('library');
+                  }}
+                >
+                  {track.artist}
+                </button>
+              ) : (
+                <p className="text-xs" style={{ color: '#9A9A9A' }}>Select a source to begin</p>
+              )}
+            </div>
+          </div>
+
+          {/* Seek */}
+          <div>
+            <input
+              type="range" min={0} max={duration || 100} value={currentTime}
+              onChange={handleSeek}
+              className="w-full h-1 rounded-full appearance-none cursor-pointer"
+              style={seekStyleLight}
+            />
+            <div className="flex justify-between mt-0.5">
+              <span className="text-[10px]" style={{ color: '#9A9A9A' }}>{formatTime(currentTime)}</span>
+              <span className="text-[10px]" style={{ color: '#9A9A9A' }}>{formatDuration(duration)}</span>
+            </div>
+          </div>
+
+          <TransportRow light />
+          <ShuffleVolumeRow light />
+        </div>
+
+        {/* Hidden YT iframe — must stay mounted here in desktop audio mode */}
+        {ownsPlayer && <YTPlayer />}
       </div>
     );
   }
@@ -343,7 +442,7 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
               style={seekStyleLight} />
             <div className="flex justify-between -mt-1">
               <span className="text-[10px]" style={{ color: '#9A9A9A' }}>{formatTime(currentTime)}</span>
-              <span className="text-[10px]" style={{ color: '#9A9A9A' }}>{formatTime(duration)}</span>
+              <span className="text-[10px]" style={{ color: '#9A9A9A' }}>{formatDuration(duration)}</span>
             </div>
             <TransportRow light />
             <ShuffleVolumeRow light />
@@ -396,7 +495,7 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
                 style={seekStyle} />
               <div className="flex justify-between mt-1">
                 <span className="text-[10px]" style={{ color: '#6B6B6B' }}>{formatTime(currentTime)}</span>
-                <span className="text-[10px]" style={{ color: '#6B6B6B' }}>{formatTime(duration)}</span>
+                <span className="text-[10px]" style={{ color: '#6B6B6B' }}>{formatDuration(duration)}</span>
               </div>
             </div>
             <div className="w-full mb-2"><TransportRow /></div>

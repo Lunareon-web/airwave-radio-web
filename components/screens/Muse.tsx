@@ -77,30 +77,29 @@ function TrackCard({
         <p className="text-sm font-semibold truncate" style={{ color: '#FFFFFF' }}>{track.track}</p>
         <p className="text-xs truncate" style={{ color: '#9A9A9A' }}>{track.artist}</p>
       </div>
-      <button
-        onClick={onPlay}
-        className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
-        style={{ background: '#FF4D3D' }}
-        title="Play now"
-      >
-        <Play size={14} color="white" fill="white" />
-      </button>
-      <button
-        onClick={onAdd}
-        className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
-        style={{ background: '#E8E6E1' }}
-        title="Add to queue"
-      >
-        <Plus size={14} color="#6B6B6B" />
-      </button>
-      <button
-        onClick={onAddToPlaylist}
-        className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
-        style={{ background: '#E8E6E1' }}
-        title="Add to playlist"
-      >
-        <ListMusic size={14} color="#6B6B6B" />
-      </button>
+      <div className="flex items-center gap-0.5 flex-shrink-0">
+        <button
+          onClick={onPlay}
+          className="w-8 h-8 flex items-center justify-center transition-opacity hover:opacity-70"
+          title="Play now"
+        >
+          <Play size={15} color="#FF4D3D" fill="#FF4D3D" />
+        </button>
+        <button
+          onClick={onAdd}
+          className="w-8 h-8 flex items-center justify-center transition-opacity hover:opacity-70"
+          title="Add to queue"
+        >
+          <Plus size={15} color="#C2C0BB" />
+        </button>
+        <button
+          onClick={onAddToPlaylist}
+          className="w-8 h-8 flex items-center justify-center transition-opacity hover:opacity-70"
+          title="Add to playlist"
+        >
+          <ListMusic size={15} color="#C2C0BB" />
+        </button>
+      </div>
     </div>
   );
 }

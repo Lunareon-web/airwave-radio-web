@@ -50,10 +50,16 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
     return () => { ytCommand.send = null; };
   }, [sendCommand]);
 
-  // Listen for messages from the YT iframe
+  // Listen for messages from the YT iframe.
+  // NOTE: We check event.origin (not event.source) because on Android Chrome
+  // cross-origin iframes run in separate renderer processes and window object
+  // reference comparison can fail, silently dropping all YT events.
   const handleMessage = useCallback((event: MessageEvent) => {
-    if (!iframeRef.current?.contentWindow) return;
-    if (event.source !== iframeRef.current.contentWindow) return;
+    if (
+      event.origin !== 'https://www.youtube.com' &&
+      event.origin !== 'https://www.youtube-nocookie.com'
+    ) return;
+    if (!iframeRef.current) return; // iframe not mounted
     if (!event.data || typeof event.data !== 'string') return;
     let data: { event?: string; info?: Record<string, unknown> };
     try { data = JSON.parse(event.data); } catch { return; }
@@ -104,16 +110,29 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   }, [handleMessage]);
 
   // Local timer: interpolates currentTime every 500 ms when playing.
-  // Kicks in only when YT infoDelivery events haven't arrived in ≥1.2 s
-  // (e.g. mobile throttling, hidden iframe).  Actual YT events always win.
+  // Two modes:
+  //   a) YT events flowing  → interpolate from last known position (if stale ≥1.2s)
+  //   b) No YT events yet   → count up from store's currentTime at play-start
+  // This ensures the progress bar is NEVER frozen even on Android where
+  // postMessage events from hidden iframes may be delayed or absent.
   useEffect(() => {
     if (!isPlaying || !videoId) return;
+    // Capture baseline at the moment playback is confirmed
+    const startMs   = Date.now();
+    const startTime = useAppStore.getState().currentTime;
+
     const id = setInterval(() => {
       const { time, ms } = lastYtRef.current;
-      if (!ms) return; // no YT event received yet
-      const staleSec = (Date.now() - ms) / 1000;
-      if (staleSec >= 1.2) {
-        setCurrentTime(time + staleSec);
+      if (ms) {
+        // YT events have arrived — interpolate from last reported position
+        const staleSec = (Date.now() - ms) / 1000;
+        if (staleSec >= 1.2) {
+          setCurrentTime(time + staleSec);
+        }
+      } else {
+        // No YT event yet — estimate from when play started
+        const elapsed = (Date.now() - startMs) / 1000;
+        setCurrentTime(startTime + elapsed);
       }
     }, 500);
     return () => clearInterval(id);

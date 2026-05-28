@@ -12,6 +12,7 @@ import { CardyNav } from '@/components/navigation/CardyNav';
 import { SettingsPanel } from '@/components/ui/SettingsPanel';
 import { AddToPlaylistModal } from '@/components/ui/AddToPlaylistModal';
 import { BackgroundResolver } from '@/components/player/BackgroundResolver';
+import { ytCommand } from '@/components/player/YTPlayer';
 import type { CuratedTrack, DiscographyArtist } from '@/lib/types';
 
 const SCREEN_VARIANTS = {
@@ -29,8 +30,6 @@ function resetStatus(tracks: CuratedTrack[]): CuratedTrack[] {
 
 
 export default function HomePage() {
-  const playbackMode = useAppStore((s) => s.settings.playbackMode);
-
   const {
     activeScreen,
     setLibrary,
@@ -202,15 +201,56 @@ export default function HomePage() {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       const store = useAppStore.getState();
-      if (e.code === 'Space')           { e.preventDefault(); store.setIsPlaying(!store.isPlaying); }
-      else if (e.code === 'ArrowRight') { e.preventDefault(); store.skipCurrent(); }
-      else if (e.code === 'ArrowLeft')  { e.preventDefault(); store.playPrev(); }
+      if (e.code === 'Space') {
+        e.preventDefault();
+        store.setIsPlaying(!store.isPlaying);
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault();
+        const newTime = Math.min(store.currentTime + 5, store.duration);
+        ytCommand.send?.('seekTo', [newTime, true]);
+        store.setCurrentTime(newTime);
+      } else if (e.code === 'ArrowLeft') {
+        e.preventDefault();
+        const newTime = Math.max(store.currentTime - 5, 0);
+        ytCommand.send?.('seekTo', [newTime, true]);
+        store.setCurrentTime(newTime);
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, []);
 
-  // ── Media Session API ─────────────────────────────────────────────────────
+  // ── Media Session: register nav handlers ONCE on mount ───────────────────
+  // Handlers must never be removed between track changes — if they go null
+  // even briefly, Android drops the prev/next buttons from the OS widget.
+  useEffect(() => {
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.setActionHandler('play',          () => useAppStore.getState().setIsPlaying(true));
+    navigator.mediaSession.setActionHandler('pause',         () => useAppStore.getState().setIsPlaying(false));
+    navigator.mediaSession.setActionHandler('nexttrack',     () => useAppStore.getState().skipCurrent());
+    navigator.mediaSession.setActionHandler('previoustrack', () => useAppStore.getState().playPrev());
+    navigator.mediaSession.setActionHandler('seekforward',   (details) => {
+      const s = useAppStore.getState();
+      const skipSec = details.seekOffset ?? 10;
+      const newTime = Math.min(s.currentTime + skipSec, s.duration);
+      ytCommand.send?.('seekTo', [newTime, true]);
+      s.setCurrentTime(newTime);
+    });
+    navigator.mediaSession.setActionHandler('seekbackward',  (details) => {
+      const s = useAppStore.getState();
+      const skipSec = details.seekOffset ?? 10;
+      const newTime = Math.max(s.currentTime - skipSec, 0);
+      ytCommand.send?.('seekTo', [newTime, true]);
+      s.setCurrentTime(newTime);
+    });
+    return () => {
+      (['play', 'pause', 'nexttrack', 'previoustrack', 'seekforward', 'seekbackward'] as MediaSessionAction[]).forEach((a) =>
+        navigator.mediaSession.setActionHandler(a, null)
+      );
+    };
+  }, []); // ← empty deps: register once, clean up on unmount only
+
+  // ── Media Session: update metadata + state on track / play state change ──
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
     const store = useAppStore.getState();
@@ -223,15 +263,15 @@ export default function HomePage() {
       });
     }
     navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
-    navigator.mediaSession.setActionHandler('play',          () => useAppStore.getState().setIsPlaying(true));
-    navigator.mediaSession.setActionHandler('pause',         () => useAppStore.getState().setIsPlaying(false));
-    navigator.mediaSession.setActionHandler('nexttrack',     () => useAppStore.getState().skipCurrent());
-    navigator.mediaSession.setActionHandler('previoustrack', () => useAppStore.getState().playPrev());
-    return () => {
-      (['play', 'pause', 'nexttrack', 'previoustrack'] as MediaSessionAction[]).forEach((a) =>
-        navigator.mediaSession.setActionHandler(a, null)
-      );
-    };
+    if (store.duration > 0) {
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: store.duration,
+          playbackRate: 1,
+          position: Math.min(store.currentTime, store.duration),
+        });
+      } catch { /* setPositionState not universally supported */ }
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying, activeIndex, activeSource]);
 
@@ -272,42 +312,50 @@ export default function HomePage() {
         {/* 3-column body */}
         <div className="flex flex-1 overflow-hidden">
 
-          {/* ── Left column: Library (discography search + liked / history / playlists) ── */}
+          {/* ── Left column: Library — flex 1 of 5.3 ── */}
           <div
-            className="flex-shrink-0 overflow-y-auto"
-            style={{ width: 320, borderRight: '1px solid #DCDBD7' }}
+            className="overflow-hidden"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              overflowY: 'auto',
+              borderRight: '1px solid #DCDBD7',
+            }}
           >
             <LibraryScreen />
           </div>
 
-          {/* ── Center column: Player on top, Queue below (CSS grid split) ── */}
+          {/* ── Center column: Player (auto height) + Queue (fills rest) ── */}
           <div
-            className="flex-1 overflow-hidden"
+            className="overflow-hidden"
             style={{
-              minWidth: 320,
+              flex: 3,
+              minWidth: 0,
               display: 'grid',
-              // video: player auto-sizes to content (50vh video + controls), queue fills rest
-              // audio: fixed 25/75 ratio
-              gridTemplateRows: playbackMode === 'video' ? 'auto 1fr' : '25fr 75fr',
+              // Player always sizes to its natural content height — no scroll.
+              // Queue row gets whatever remains.
+              gridTemplateRows: 'auto 1fr',
             }}
           >
-            {/* Player — overflow-hidden in video mode so there is no scroll */}
-            <div
-              className={playbackMode === 'video' ? 'overflow-hidden' : 'overflow-y-auto'}
-              style={{ borderBottom: '1px solid #DCDBD7' }}
-            >
+            {/* Player — clips content, never scrolls */}
+            <div className="overflow-hidden" style={{ borderBottom: '1px solid #DCDBD7' }}>
               <NowPlaying desktopMode />
             </div>
-            {/* Queue */}
+            {/* Queue — scrollable */}
             <div className="overflow-y-auto">
               <Queue desktopMode />
             </div>
           </div>
 
-          {/* ── Right column: Muse (AI curation + curated tracklist) ── */}
+          {/* ── Right column: Muse — flex 1.3 (+30% wider than Library) ── */}
           <div
-            className="flex-shrink-0 overflow-y-auto"
-            style={{ width: 360, borderLeft: '1px solid #DCDBD7' }}
+            className="overflow-hidden"
+            style={{
+              flex: 1.3,
+              minWidth: 0,
+              overflowY: 'auto',
+              borderLeft: '1px solid #DCDBD7',
+            }}
           >
             <Muse />
           </div>

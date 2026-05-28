@@ -65,7 +65,7 @@ function LibTrackRow({
           {year && <span className="text-xs" style={{ color: '#C2C0BB' }}>{year}</span>}
         </div>
       </div>
-      <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+      <div className="flex items-center gap-1.5 flex-shrink-0">
         {onStartRadio && (
           <button onClick={onStartRadio} title="Start Radio" className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: '#E8E6E1' }}>
             <Sparkles size={13} color="#6B6B6B" />
@@ -170,7 +170,7 @@ function PlaylistCard({
                   <p className="text-xs font-semibold truncate" style={{ color: '#131313' }}>{t.track}</p>
                   <p className="text-[11px] truncate" style={{ color: '#9A9A9A' }}>{t.artist}</p>
                 </div>
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                <div className="flex items-center gap-1 flex-shrink-0">
                   <button onClick={() => onAddTrack(t)} title="Add to Queue"
                     className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: '#E8E6E1' }}>
                     <Plus size={11} color="#6B6B6B" />
