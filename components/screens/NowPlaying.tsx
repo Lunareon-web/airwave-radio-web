@@ -170,13 +170,16 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
     </div>
   );
 
-  // ── Desktop video mode: fixed non-scrolling layout ──────────────────────
+  // ── Desktop video mode: explicit 50 vh video, no scroll ─────────────────
+  // NOTE: outer div intentionally has NO h-full — the player grid row uses
+  // "auto" so it sizes to its content (video height + controls height).
+  // h-full inside overflow-y-auto breaks flex-1, so we use explicit heights.
   if (desktopMode && settings.playbackMode === 'video') {
     return (
-      <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex flex-col">
         {/* Compact status header */}
         <div
-          className="flex-shrink-0 flex items-center justify-center gap-2 px-4 py-2"
+          className="flex items-center justify-center gap-2 px-4 py-2"
           style={{ borderBottom: '1px solid #DCDBD7' }}
         >
           <FreqBars active={isPlaying} />
@@ -190,22 +193,28 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
           )}
         </div>
 
-        {/* Video — fills remaining vertical space; hidden until videoId resolves */}
+        {/* ── Video container ──
+            • Fixed 50 vh — matches "50% of site height" request
+            • display:none collapses it (takes no space) while videoId resolves,
+              but React still mounts YTPlayer inside so resolution effects run
+            • When videoId resolves → display:block → video appears instantly  */}
         {ownsPlayer && (
           <div
-            className="flex-1 min-h-0 mx-4 my-2 rounded-2xl overflow-hidden"
             style={{
+              height: '50vh',
+              display: track?.videoId ? 'block' : 'none',
               background: '#0E0E0E',
-              visibility: track?.videoId ? 'visible' : 'hidden',
+              margin: '0.5rem 1rem',
+              borderRadius: '0.75rem',
+              overflow: 'hidden',
             }}
           >
             <YTPlayer fillContainer />
           </div>
         )}
 
-        {/* Compact controls */}
-        <div className="flex-shrink-0 px-4 pb-3 flex flex-col gap-1.5">
-          {/* Track / artist */}
+        {/* Compact controls — always visible */}
+        <div className="px-4 pb-3 flex flex-col gap-1.5">
           <div className="flex items-center gap-1.5">
             <p className="text-sm font-bold truncate flex-1" style={{ color: '#131313' }}>
               {track?.track || 'No track'}
@@ -237,7 +246,6 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
           ) : (
             <p className="text-xs -mt-1" style={{ color: '#9A9A9A' }}>Select a source to begin</p>
           )}
-          {/* Seek */}
           <input
             type="range" min={0} max={duration || 100} value={currentTime}
             onChange={handleSeek}

@@ -283,10 +283,19 @@ export default function HomePage() {
           {/* ── Center column: Player on top, Queue below (CSS grid split) ── */}
           <div
             className="flex-1 overflow-hidden"
-            style={{ minWidth: 320, display: 'grid', gridTemplateRows: playbackMode === 'video' ? '48fr 52fr' : '25fr 75fr' }}
+            style={{
+              minWidth: 320,
+              display: 'grid',
+              // video: player auto-sizes to content (50vh video + controls), queue fills rest
+              // audio: fixed 25/75 ratio
+              gridTemplateRows: playbackMode === 'video' ? 'auto 1fr' : '25fr 75fr',
+            }}
           >
-            {/* Player */}
-            <div className="overflow-y-auto" style={{ borderBottom: '1px solid #DCDBD7' }}>
+            {/* Player — overflow-hidden in video mode so there is no scroll */}
+            <div
+              className={playbackMode === 'video' ? 'overflow-hidden' : 'overflow-y-auto'}
+              style={{ borderBottom: '1px solid #DCDBD7' }}
+            >
               <NowPlaying desktopMode />
             </div>
             {/* Queue */}
