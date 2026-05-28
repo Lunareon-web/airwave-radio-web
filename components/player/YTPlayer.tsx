@@ -168,7 +168,7 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
     const tracks = getSourceTracks(activeSource);
     const storeSettings = useAppStore.getState().settings;
 
-    for (let i = activeIndex; i < Math.min(activeIndex + 6, tracks.length); i++) {
+    for (let i = activeIndex; i < Math.min(activeIndex + 2, tracks.length); i++) {
       const track = tracks[i];
       if (!track) continue;
       // For the current (active) track: also retry 'failed' status so a quota
