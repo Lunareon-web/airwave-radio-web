@@ -62,7 +62,7 @@ function TrackRow({
 }) {
   return (
     <div
-      className="flex items-center gap-2.5 py-2.5 px-1 rounded-xl transition-all"
+      className="group flex items-center gap-2.5 py-2.5 px-1 rounded-xl transition-all"
       style={{ background: isActive ? 'rgba(255,77,61,0.06)' : 'transparent' }}
     >
       {showGrip && (
@@ -156,9 +156,15 @@ function TrackRow({
             <ThumbsDown size={15} fill={isDisliked ? '#6B6B6B' : 'none'} />
           </button>
         )}
-        {isActive && onPlay && (
-          <button onClick={onPlay} style={{ color: '#FF4D3D' }}>
-            {isPlaying ? <Pause size={18} fill="#FF4D3D" /> : <Play size={18} fill="#FF4D3D" />}
+        {onPlay && (
+          <button
+            onClick={onPlay}
+            className={`transition-opacity ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+            style={{ color: '#FF4D3D' }}
+          >
+            {isActive && isPlaying
+              ? <Pause size={18} fill="#FF4D3D" />
+              : <Play  size={18} fill="#FF4D3D" />}
           </button>
         )}
         {onRemove && (

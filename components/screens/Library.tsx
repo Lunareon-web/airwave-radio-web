@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import {
-  Search, Play, Heart, HeartOff, History, Music, Disc, Loader2, X,
+  Search, Play, Pause, Heart, HeartOff, History, Music, Disc, Loader2, X,
   ListMusic, FolderPlus, Trash2, Plus, ArrowUpDown, ChevronDown, ChevronUp,
   Sparkles,
 } from 'lucide-react';
@@ -24,6 +24,8 @@ function LibTrackRow({
   onUnlike,
   onAddToPlaylist,
   onStartRadio,
+  isActive = false,
+  isPlaying = false,
 }: {
   track: { artist: string; track: string; coverArt?: string; album?: string; year?: string };
   onPlay?: () => void;
@@ -31,10 +33,15 @@ function LibTrackRow({
   onUnlike?: () => void;
   onAddToPlaylist?: () => void;
   onStartRadio?: () => void;
+  isActive?: boolean;
+  isPlaying?: boolean;
 }) {
   const { artist, track: name, coverArt, album, year } = track;
   return (
-    <div className="flex items-center gap-3 py-2.5 px-1 group">
+    <div
+      className="flex items-center gap-3 py-2.5 px-1 group rounded-xl transition-all"
+      style={{ background: isActive ? 'rgba(255,77,61,0.06)' : 'transparent' }}
+    >
       <AlbumArt artist={artist} track={name} coverArt={coverArt} size={44} rounded="xl" />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold truncate" style={{ color: '#131313' }}>{name}</p>
@@ -62,7 +69,9 @@ function LibTrackRow({
         )}
         {onPlay && (
           <button onClick={onPlay} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: '#FF4D3D' }}>
-            <Play size={13} color="white" fill="white" />
+            {isActive && isPlaying
+              ? <Pause size={13} color="white" fill="white" />
+              : <Play  size={13} color="white" fill="white" />}
           </button>
         )}
         {onUnlike && (
@@ -184,6 +193,7 @@ export function Library() {
     setLibraryPlaylist, setActiveScreen, settings,
     playNow, createPlaylist, deletePlaylist,
     setAddToPlaylistTrack, setCurrentPrompt,
+    activeSource, activeIndex, isPlaying,
   } = useAppStore();
 
   const [activeTab, setActiveTab] = useState<LibTab>(discographyQuery ? 'discography' : 'liked');
@@ -195,13 +205,18 @@ export function Library() {
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
 
-  // Auto-search when navigated here with a query
+  // Auto-search on mount or whenever discographyQuery changes (e.g. artist-name click in NowPlaying)
   useEffect(() => {
-    if (discographyQuery && discographyTracks.length === 0) {
-      searchDiscography(discographyQuery);
+    if (discographyQuery) {
+      setSearchQuery(discographyQuery);
+      setActiveTab('discography');
+      // Only re-fetch if the query actually changed (tracks may already be loaded)
+      if (discographyTracks.length === 0 || discographyArtist?.name?.toLowerCase() !== discographyQuery.toLowerCase()) {
+        searchDiscography(discographyQuery);
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [discographyQuery]);
 
   const searchDiscography = async (query: string) => {
     if (!query.trim()) return;
@@ -481,6 +496,8 @@ export function Library() {
                           onAdd={() => addToQueue({ ...track })}
                           onStartRadio={() => handleStartRadio(track.artist, track.track)}
                           onAddToPlaylist={() => setAddToPlaylistTrack(track)}
+                          isActive={activeSource === 'discography' && activeIndex === originalIndex}
+                          isPlaying={isPlaying && activeSource === 'discography' && activeIndex === originalIndex}
                         />
                       ))}
                     </div>
@@ -539,6 +556,8 @@ export function Library() {
                       onUnlike={() => unlikeTrack(track.id)}
                       onAddToPlaylist={() => setAddToPlaylistTrack(toPlayable(track))}
                       onStartRadio={() => handleStartRadio(track.artist, track.track)}
+                      isActive={activeSource === 'library' && activeIndex === idx}
+                      isPlaying={isPlaying && activeSource === 'library' && activeIndex === idx}
                     />
                   ))}
                 </div>

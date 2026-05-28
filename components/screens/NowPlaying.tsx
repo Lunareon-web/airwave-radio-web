@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import {
   SkipBack, SkipForward, Play, Pause,
   Heart, ThumbsDown, Shuffle,
@@ -30,6 +31,21 @@ function formatTime(seconds: number): string {
 }
 
 export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
+  // ── Which instance should own the YTPlayer? ──────────────────────────────
+  // Both desktop and mobile <NowPlaying> are always mounted (display:none/flex).
+  // Without this guard BOTH iframes play simultaneously → echo effect.
+  // Rule: desktopMode instance owns it on ≥1024 px; mobile instance owns it on <1024 px.
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 1023px)');
+    const update = (e: MediaQueryList | MediaQueryListEvent) => setIsMobileViewport(e.matches);
+    update(mq);
+    mq.addEventListener('change', update as (e: MediaQueryListEvent) => void);
+    return () => mq.removeEventListener('change', update as (e: MediaQueryListEvent) => void);
+  }, []);
+  // desktopMode XOR isMobileViewport → exactly one instance is true at any time
+  const ownsPlayer = desktopMode !== isMobileViewport;
+
   const {
     isPlaying, setIsPlaying, currentTime, setCurrentTime, duration,
     playNext, playPrev, skipCurrent,
@@ -242,8 +258,8 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
       )}
 
       {/* ── Video Mode ── */}
-      {settings.playbackMode === 'video' && track?.videoId && (
-        <div className="mb-4 rounded-2xl overflow-hidden">
+      {settings.playbackMode === 'video' && track?.videoId && ownsPlayer && (
+        <div className="mb-4 rounded-2xl overflow-hidden" style={{ maxHeight: '42vh' }}>
           <YTPlayer />
         </div>
       )}
@@ -389,17 +405,26 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
       )}
 
       {/* ── AI Advisor ── */}
+      {/* ── AI Music Advisor ── */}
       {track && (
         <div
           className="rounded-2xl p-4 mb-4"
           style={{ background: '#FFFFFF', boxShadow: '0 2px 12px rgba(14,14,14,0.06)' }}
         >
+          {/* Header */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-full flex items-center justify-center" style={{ background: '#FF4D3D' }}>
-                <Sparkles size={12} color="white" />
+              <div className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: '#FF4D3D' }}>
+                <Sparkles size={13} color="white" />
               </div>
-              <span className="text-sm font-semibold" style={{ color: '#131313' }}>Why Muse picked this</span>
+              <div>
+                <p className="text-sm font-bold" style={{ color: '#131313' }}>AI Music Curator</p>
+                {advisorData && (
+                  <p className="text-[10px]" style={{ color: '#9A9A9A' }}>
+                    {track.artist} · {track.track}
+                  </p>
+                )}
+              </div>
             </div>
             <button
               onClick={analyzeTrack}
@@ -407,39 +432,125 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
               className="text-xs font-semibold px-3 py-1.5 rounded-full transition-opacity hover:opacity-80 disabled:opacity-50"
               style={{ background: 'rgba(255,77,61,0.12)', color: '#FF4D3D' }}
             >
-              {isAnalyzing ? 'Analyzing…' : advisorData ? 'Refresh' : 'Analyze'}
+              {isAnalyzing
+                ? <><Loader2 size={11} className="inline mr-1 animate-spin" />Analyzing…</>
+                : advisorData ? 'Refresh' : 'Analyze'}
             </button>
           </div>
 
           <AnimatePresence>
-            {advisorData && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-              >
-                <div className="flex flex-wrap gap-2">
-                  {advisorData.bubbles.map((bubble, i) => (
-                    <Chip
-                      key={i}
-                      variant={bubble.type === 'genre' ? 'dark' : bubble.type === 'mood' ? 'accent' : 'default'}
-                      onClick={() => handleBubbleClick(bubble)}
+            {advisorData && (() => {
+              // Group bubbles by type
+              const byType = advisorData.bubbles.reduce<Record<string, typeof advisorData.bubbles>>((acc, b) => {
+                (acc[b.type] = acc[b.type] || []).push(b);
+                return acc;
+              }, {});
+
+              const SECTIONS = [
+                {
+                  key: 'genre', label: 'GENRE & STIL',
+                  color: '#3B82F6', bg: 'rgba(59,130,246,0.10)',
+                  action: null,
+                },
+                {
+                  key: 'mood', label: 'STIMMUNG',
+                  color: '#F59E0B', bg: 'rgba(245,158,11,0.10)',
+                  action: null,
+                },
+                {
+                  key: 'artist', label: 'ÄHNLICHE KÜNSTLER',
+                  color: '#10B981', bg: 'rgba(16,185,129,0.10)',
+                  action: { label: '· Discography laden', onClick: (val: string) => {
+                    const store = useAppStore.getState();
+                    store.setDiscographyTracks([]);
+                    store.setDiscographyArtist(null);
+                    store.setDiscographyQuery(val);
+                    store.setActiveScreen('library');
+                  }},
+                },
+                {
+                  key: 'era', label: 'ÄRA & BEWEGUNG',
+                  color: '#EF4444', bg: 'rgba(239,68,68,0.10)',
+                  action: null,
+                },
+                {
+                  key: 'song', label: 'VERWANDTE SONGS',
+                  color: '#06B6D4', bg: 'rgba(6,182,212,0.10)',
+                  action: { label: '· sofort abspielen', onClick: (val: string) => handleBubbleClick({ type: 'song', label: 'Similar Song', value: val }) },
+                },
+              ];
+
+              return (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="space-y-3"
+                >
+                  {SECTIONS.map(({ key, label, color, bg, action }) => {
+                    const items = byType[key];
+                    if (!items?.length) return null;
+                    return (
+                      <div key={key}>
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <p className="text-[10px] font-bold tracking-wider" style={{ color: '#9A9A9A' }}>
+                            {label}
+                          </p>
+                          {action && (
+                            <button
+                              className="text-[10px] font-semibold transition-opacity hover:opacity-70"
+                              style={{ color }}
+                              onClick={() => action.onClick(items[0]?.value || '')}
+                            >
+                              {action.label}
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {items.map((bubble, i) => (
+                            <button
+                              key={i}
+                              onClick={() => key === 'artist'
+                                ? action?.onClick(bubble.value)
+                                : handleBubbleClick(bubble)
+                              }
+                              className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-all hover:opacity-80 active:scale-95"
+                              style={{ background: bg, color }}
+                            >
+                              {key === 'artist' && '👤 '}
+                              {key === 'era'    && '⏱ '}
+                              {key === 'song'   && '🎵 '}
+                              {bubble.value}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* Seed prompt chip */}
+                  {advisorData.seedPrompt && (
+                    <button
+                      onClick={() => {
+                        useAppStore.getState().setCurrentPrompt(advisorData!.seedPrompt!);
+                        useAppStore.getState().setActiveScreen('muse');
+                      }}
+                      className="w-full mt-1 py-2 rounded-xl text-xs font-semibold text-center transition-all hover:opacity-80"
+                      style={{ background: 'rgba(255,77,61,0.08)', color: '#FF4D3D' }}
                     >
-                      {bubble.type === 'artist' && '🎤 '}
-                      {bubble.type === 'song'   && '🎵 '}
-                      {bubble.type === 'era'    && '📅 '}
-                      {bubble.label}: {bubble.value}
-                    </Chip>
-                  ))}
-                </div>
-              </motion.div>
-            )}
+                      <Sparkles size={11} className="inline mr-1" />
+                      Ähnliches Radio starten
+                    </button>
+                  )}
+                </motion.div>
+              );
+            })()}
           </AnimatePresence>
         </div>
       )}
 
-      {/* Hidden audio iframe */}
-      {settings.playbackMode === 'audio' && <YTPlayer />}
+      {/* Hidden audio iframe — only ONE instance per page */}
+      {settings.playbackMode === 'audio' && ownsPlayer && <YTPlayer />}
 
       <div className="h-24" />
     </div>
