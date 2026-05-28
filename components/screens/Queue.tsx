@@ -184,12 +184,11 @@ function TrackRow({
           <button
             onClick={onPlay}
             className="transition-opacity hover:opacity-70"
-            style={{ color: '#FF4D3D' }}
             title={isActive && isPlaying ? 'Pause' : 'Play'}
           >
             {isActive && isPlaying
-              ? <Pause size={18} fill="#FF4D3D" />
-              : <Play  size={18} fill="#FF4D3D" />}
+              ? <Pause size={18} color="#FF4D3D" fill="#FF4D3D" />
+              : <Play  size={18} color="#9A9A9A"  fill="#9A9A9A" />}
           </button>
         )}
         {onRemove && (

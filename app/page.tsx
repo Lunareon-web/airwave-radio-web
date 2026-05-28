@@ -11,6 +11,7 @@ import { Library as LibraryScreen } from '@/components/screens/Library';
 import { CardyNav } from '@/components/navigation/CardyNav';
 import { SettingsPanel } from '@/components/ui/SettingsPanel';
 import { AddToPlaylistModal } from '@/components/ui/AddToPlaylistModal';
+import { BackgroundResolver } from '@/components/player/BackgroundResolver';
 import type { CuratedTrack, DiscographyArtist } from '@/lib/types';
 
 const SCREEN_VARIANTS = {
@@ -363,6 +364,9 @@ export default function HomePage() {
       {/* Global overlays — shown over both layouts */}
       <SettingsPanel />
       <AddToPlaylistModal />
+
+      {/* Background resolver — loads cover art for all idle tracks (3s throttle) */}
+      <BackgroundResolver />
     </>
   );
 }

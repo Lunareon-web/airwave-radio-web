@@ -16,6 +16,8 @@ interface YTPlayerProps {
 export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const ytReadyRef = useRef(false);
+  // Prevents firing playNext() multiple times in the 2s pre-end window
+  const nearEndFiredRef = useRef(false);
   const {
     activeSource, activeIndex, isPlaying, volume, isMuted,
     setIsPlaying, setCurrentTime, setDuration, playNext,
@@ -68,15 +70,23 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
           ytReadyRef.current = true;
           setIsPlaying(true);
           if (onReady) onReady();
-        } else if (state === 2) {
-          // Near-end: YT fires pause ~1s before end → treat as ended
-          if (dur > 0 && dur - ct <= 2) {
+          // 2-second pre-advance: start next track before the current one ends
+          if (dur > 0 && dur - ct <= 2 && !nearEndFiredRef.current) {
+            nearEndFiredRef.current = true;
             playNext();
+          }
+        } else if (state === 2) {
+          // YT sometimes fires pause ~1s before end — treat as ended
+          if (dur > 0 && dur - ct <= 2) {
+            if (!nearEndFiredRef.current) {
+              nearEndFiredRef.current = true;
+              playNext();
+            }
           } else if (!useAppStore.getState().isPlaying) {
             setIsPlaying(false);
           }
         } else if (state === 0) {
-          playNext();
+          if (!nearEndFiredRef.current) playNext();
         }
       }
     }
@@ -155,6 +165,7 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   useEffect(() => {
     if (!videoId) return;
     ytReadyRef.current = false;
+    nearEndFiredRef.current = false;
     const t1 = setTimeout(() => {
       sendCommand('playVideo');
       sendCommand('setVolume', [isMuted ? 0 : Math.round(volume * 100)]);

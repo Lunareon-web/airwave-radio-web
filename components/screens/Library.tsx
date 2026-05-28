@@ -82,10 +82,11 @@ function LibTrackRow({
           </button>
         )}
         {onPlay && (
-          <button onClick={onPlay} className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: '#FF4D3D' }}>
+          <button onClick={onPlay} className="w-7 h-7 rounded-full flex items-center justify-center"
+            style={{ background: isActive && isPlaying ? '#FF4D3D' : '#E8E6E1' }}>
             {isActive && isPlaying
-              ? <Pause size={13} color="white" fill="white" />
-              : <Play  size={13} color="white" fill="white" />}
+              ? <Pause size={13} color="white"   fill="white" />
+              : <Play  size={13} color="#6B6B6B" fill="#6B6B6B" />}
           </button>
         )}
         {onUnlike && (
