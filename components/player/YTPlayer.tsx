@@ -18,6 +18,8 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   const ytReadyRef = useRef(false);
   // Prevents firing playNext() multiple times in the 2s pre-end window
   const nearEndFiredRef = useRef(false);
+  // Tracks the last YT-reported time & wall-clock stamp for local interpolation
+  const lastYtRef = useRef<{ time: number; ms: number }>({ time: 0, ms: 0 });
   const {
     activeSource, activeIndex, isPlaying, volume, isMuted,
     setIsPlaying, setCurrentTime, setDuration, playNext,
@@ -58,7 +60,11 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
 
     if (data.event === 'initialDelivery' || data.event === 'infoDelivery') {
       const info = data.info || {};
-      if (typeof info.currentTime === 'number') setCurrentTime(info.currentTime as number);
+      if (typeof info.currentTime === 'number') {
+        const ct = info.currentTime as number;
+        lastYtRef.current = { time: ct, ms: Date.now() };
+        setCurrentTime(ct);
+      }
       if (typeof info.duration === 'number' && (info.duration as number) > 0) setDuration(info.duration as number);
 
       if (typeof info.playerState === 'number') {
@@ -96,6 +102,22 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, [handleMessage]);
+
+  // Local timer: interpolates currentTime every 500 ms when playing.
+  // Kicks in only when YT infoDelivery events haven't arrived in ≥1.2 s
+  // (e.g. mobile throttling, hidden iframe).  Actual YT events always win.
+  useEffect(() => {
+    if (!isPlaying || !videoId) return;
+    const id = setInterval(() => {
+      const { time, ms } = lastYtRef.current;
+      if (!ms) return; // no YT event received yet
+      const staleSec = (Date.now() - ms) / 1000;
+      if (staleSec >= 1.2) {
+        setCurrentTime(time + staleSec);
+      }
+    }, 500);
+    return () => clearInterval(id);
+  }, [isPlaying, videoId, setCurrentTime]);
 
   // Play/pause
   useEffect(() => {

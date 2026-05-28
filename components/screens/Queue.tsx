@@ -1,11 +1,12 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import {
   X, GripVertical, Plus, Play, Pause, SkipForward,
   Heart, ThumbsDown, Sparkles, ArrowUpDown, Trash2,
-  Loader2, CheckCircle2, ListMusic,
+  Loader2, CheckCircle2, ListMusic, BookmarkPlus,
 } from 'lucide-react';
-import { Reorder } from 'framer-motion';
+import { Reorder, useDragControls } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
 import { AlbumArt } from '@/components/ui/AlbumArt';
 import { Chip } from '@/components/ui/Chip';
@@ -67,12 +68,6 @@ function TrackRow({
       className="group flex items-center gap-2.5 py-2.5 px-1 rounded-xl transition-all"
       style={{ background: isActive ? 'rgba(255,77,61,0.06)' : 'transparent' }}
     >
-      {showGrip && (
-        <div style={{ color: '#C2C0BB', cursor: 'grab', flexShrink: 0 }}>
-          <GripVertical size={16} />
-        </div>
-      )}
-
       {/* Left action: play-now pill (history/skipped rows) */}
       {onPlayNow && !showGrip && (
         <button
@@ -201,7 +196,83 @@ function TrackRow({
   );
 }
 
-export function Queue({ desktopMode = false }: { desktopMode?: boolean }) {
+// ─── Draggable wrapper — drag only via the GripVertical handle ───────────────
+function DraggableItem({
+  track, i, activeSource, activeIndex, isPlaying: globalPlaying,
+  makeTrackId, likedSet, dislikedSet,
+  playTrack, removeFromQueue, setAddToPlaylistTrack,
+  likeTrack, unlikeTrack, dislikeTrack, undislikeTrack,
+  handleStartRadio, setDiscographyTracks, setDiscographyArtist,
+  setDiscographyQuery, setActiveScreen,
+}: {
+  track: CuratedTrack; i: number;
+  activeSource: string | null; activeIndex: number; isPlaying: boolean;
+  makeTrackId: (t: CuratedTrack) => string;
+  likedSet: Set<string>; dislikedSet: Set<string>;
+  playTrack: (s: 'queue', idx: number) => void;
+  removeFromQueue: (idx: number) => void;
+  setAddToPlaylistTrack: (t: CuratedTrack) => void;
+  likeTrack: (t: CuratedTrack) => void;
+  unlikeTrack: (id: string) => void;
+  dislikeTrack: (id: string) => void;
+  undislikeTrack: (id: string) => void;
+  handleStartRadio: (t: CuratedTrack) => void;
+  setDiscographyTracks: (t: CuratedTrack[]) => void;
+  setDiscographyArtist: (a: null) => void;
+  setDiscographyQuery: (q: string) => void;
+  setActiveScreen: (s: import('@/lib/types').ActiveScreen) => void;
+}) {
+  const controls = useDragControls();
+  const tid = makeTrackId(track);
+
+  return (
+    <Reorder.Item
+      key={`${track.artist}-${track.track}-${i}`}
+      value={track}
+      dragListener={false}
+      dragControls={controls}
+    >
+      <div className="flex items-center gap-2">
+        {/* ── Drag handle — only this triggers drag ── */}
+        <div
+          onPointerDown={(e) => { e.preventDefault(); controls.start(e); }}
+          style={{ color: '#C2C0BB', cursor: 'grab', flexShrink: 0, touchAction: 'none' }}
+        >
+          <GripVertical size={16} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <TrackRow
+            track={track}
+            isActive={activeSource === 'queue' && activeIndex === i}
+            isPlaying={globalPlaying && activeSource === 'queue' && activeIndex === i}
+            onPlay={() => playTrack('queue', i)}
+            onRemove={() => removeFromQueue(i)}
+            onAddToPlaylist={() => setAddToPlaylistTrack(track)}
+            isLiked={likedSet.has(tid)}
+            isDisliked={dislikedSet.has(tid)}
+            onLike={() => likedSet.has(tid) ? unlikeTrack(tid) : likeTrack(track)}
+            onDislike={() => dislikedSet.has(tid) ? undislikeTrack(tid) : dislikeTrack(tid)}
+            onStartRadio={() => handleStartRadio(track)}
+            onArtistClick={() => {
+              setDiscographyTracks([]);
+              setDiscographyArtist(null);
+              setDiscographyQuery(track.artist);
+              setActiveScreen('library');
+            }}
+          />
+        </div>
+      </div>
+    </Reorder.Item>
+  );
+}
+
+export function Queue({
+  desktopMode = false,
+  embeddedMode = false,
+}: {
+  desktopMode?: boolean;
+  embeddedMode?: boolean;
+}) {
   const {
     queue, setQueue, playedTracks, skippedTracks,
     activeSource, activeIndex, isPlaying,
@@ -211,10 +282,39 @@ export function Queue({ desktopMode = false }: { desktopMode?: boolean }) {
     library, likeTrack, unlikeTrack, dislikeTrack, undislikeTrack,
     setCurrentPrompt, setAddToPlaylistTrack,
     setDiscographyTracks, setDiscographyArtist, setDiscographyQuery,
+    createPlaylist, addToPlaylist,
   } = useAppStore();
 
   const getCurrentTrack = useAppStore((s) => s.getCurrentTrack);
   const currentTrack = getCurrentTrack();
+
+  // ── Save-as-Playlist state ───────────────────────────────────────────────
+  const [showSaveForm, setShowSaveForm] = useState(false);
+  const [saveName, setSaveName]         = useState('');
+  const [saveToast, setSaveToast]       = useState('');
+  const [saving, setSaving]             = useState(false);
+
+  useEffect(() => {
+    if (!saveToast) return;
+    const t = setTimeout(() => setSaveToast(''), 3000);
+    return () => clearTimeout(t);
+  }, [saveToast]);
+
+  const today = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const defaultSaveName = `Queue – ${today}`;
+
+  const handleSaveQueue = async () => {
+    if (!queue.length) return;
+    setSaving(true);
+    const name = saveName.trim() || defaultSaveName;
+    const id = await createPlaylist(name);
+    if (!id) { setSaveToast('Fehler beim Speichern'); setSaving(false); return; }
+    queue.forEach((track) => addToPlaylist(id, track));
+    setShowSaveForm(false);
+    setSaveName('');
+    setSaveToast(`✓ "${name}" in Library gespeichert`);
+    setSaving(false);
+  };
 
   // Convert liked library tracks to CuratedTrack format for the Saved tab
   const savedTracks: CuratedTrack[] = library.liked.map((lt) => ({
@@ -243,10 +343,16 @@ export function Queue({ desktopMode = false }: { desktopMode?: boolean }) {
     saved:   library.liked.length,
   };
 
+  // ── Root element height ───────────────────────────────────────────────────
+  // embeddedMode: natural height, parent (NowPlaying) handles scroll
+  // standalone mobile: full-viewport height so inner flex-1 works
+  const rootStyle = embeddedMode ? {} : desktopMode ? {} : { height: '100svh' };
+
   return (
-    <div className="flex flex-col h-full">
-      {/* Header — simplified on desktop (no back button, no mini-player needed) */}
-      {!desktopMode && (
+    <div className="flex flex-col" style={{ ...rootStyle, background: embeddedMode ? 'transparent' : undefined }}>
+
+      {/* ── Standalone mobile header ── */}
+      {!desktopMode && !embeddedMode && (
         <>
           <div className="flex items-center justify-between px-4 pt-4 pb-3">
             <button
@@ -260,7 +366,7 @@ export function Queue({ desktopMode = false }: { desktopMode?: boolean }) {
             <div className="w-9" />
           </div>
 
-          {/* Mini player — only on mobile (desktop already shows NowPlaying) */}
+          {/* Mini player — standalone mobile only */}
           {currentTrack && (
             <div className="mx-4 mb-4 rounded-2xl p-3 flex items-center gap-3" style={{ background: '#0E0E0E' }}>
               <AlbumArt
@@ -291,7 +397,7 @@ export function Queue({ desktopMode = false }: { desktopMode?: boolean }) {
         </>
       )}
 
-      {/* Desktop queue header */}
+      {/* ── Desktop queue header ── */}
       {desktopMode && (
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
           <h2 className="text-sm font-bold uppercase tracking-wider" style={{ color: '#9A9A9A' }}>Up Next</h2>
@@ -307,7 +413,62 @@ export function Queue({ desktopMode = false }: { desktopMode?: boolean }) {
         </div>
       )}
 
-      {/* Tabs */}
+      {/* ── Embedded header (compact) ── */}
+      {embeddedMode && (
+        <div className="flex items-center justify-between px-4 pt-3 pb-1">
+          <h3 className="text-xs font-bold uppercase tracking-wider" style={{ color: '#9A9A9A' }}>
+            Up Next {queue.length > 0 && <span style={{ color: '#C2C0BB' }}>· {queue.length}</span>}
+          </h3>
+          {queue.length > 0 && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { setSaveName(defaultSaveName); setShowSaveForm((v) => !v); }}
+                title="Queue als Playlist speichern"
+                className="hover:opacity-70 transition-opacity"
+                style={{ color: '#9A9A9A' }}
+              >
+                <BookmarkPlus size={15} />
+              </button>
+              <button
+                onClick={() => { useAppStore.getState().setActiveSource(null); useAppStore.getState().setActiveIndex(-1); useAppStore.getState().setIsPlaying(false); setQueue([]); }}
+                title="Clear queue"
+                className="hover:opacity-70 transition-opacity"
+                style={{ color: '#C2C0BB' }}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Save-as-Playlist inline form ── */}
+      {showSaveForm && (
+        <div className="flex items-center gap-2 px-4 pb-2">
+          <input
+            autoFocus
+            value={saveName}
+            onChange={(e) => setSaveName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleSaveQueue(); if (e.key === 'Escape') setShowSaveForm(false); }}
+            placeholder={defaultSaveName}
+            className="flex-1 text-xs px-2.5 py-1.5 rounded-lg outline-none"
+            style={{ background: '#F0EFEC', border: '1.5px solid #DCDBD7', color: '#131313' }}
+          />
+          <button
+            onClick={handleSaveQueue}
+            disabled={saving}
+            className="text-xs px-3 py-1.5 rounded-lg font-semibold disabled:opacity-50"
+            style={{ background: '#FF4D3D', color: '#FFFFFF' }}
+          >
+            {saving ? '…' : 'Save'}
+          </button>
+          <button onClick={() => setShowSaveForm(false)} style={{ color: '#9A9A9A' }}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* ── Tabs ── */}
       <div className="flex items-center gap-1 px-4 mb-2 overflow-x-auto no-scrollbar">
         {TABS.map((tab) => (
           <button
@@ -335,7 +496,7 @@ export function Queue({ desktopMode = false }: { desktopMode?: boolean }) {
         ))}
       </div>
 
-      {/* Queue-tab toolbar: sort + clear */}
+      {/* ── Queue-tab toolbar: sort + save + clear ── */}
       {queueTab === 'queue' && queue.length > 1 && (
         <div className="flex items-center gap-2 px-4 mb-2">
           <span className="text-[10px] uppercase tracking-wider font-semibold flex-1" style={{ color: '#9A9A9A' }}>Sort</span>
@@ -353,26 +514,38 @@ export function Queue({ desktopMode = false }: { desktopMode?: boolean }) {
           >
             <ArrowUpDown size={10} /> Title
           </button>
-          <button
-            onClick={() => {
-              if (activeSource === 'queue') {
-                useAppStore.getState().setActiveSource(null);
-                useAppStore.getState().setActiveIndex(-1);
-                useAppStore.getState().setIsPlaying(false);
-              }
-              setQueue([]);
-            }}
-            className="ml-auto"
-            style={{ color: '#C2C0BB' }}
-            title="Clear queue"
-          >
-            <X size={16} />
-          </button>
+          {/* Save + Clear (only in standalone/desktop, not in embeddedMode where header shows them) */}
+          {!embeddedMode && (
+            <>
+              <button
+                onClick={() => { setSaveName(defaultSaveName); setShowSaveForm((v) => !v); }}
+                title="Als Playlist speichern"
+                className="hover:opacity-70 transition-opacity"
+                style={{ color: '#9A9A9A' }}
+              >
+                <BookmarkPlus size={14} />
+              </button>
+              <button
+                onClick={() => {
+                  if (activeSource === 'queue') {
+                    useAppStore.getState().setActiveSource(null);
+                    useAppStore.getState().setActiveIndex(-1);
+                    useAppStore.getState().setIsPlaying(false);
+                  }
+                  setQueue([]);
+                }}
+                style={{ color: '#C2C0BB' }}
+                title="Clear queue"
+              >
+                <X size={16} />
+              </button>
+            </>
+          )}
         </div>
       )}
 
-      {/* Track list */}
-      <div className="flex-1 overflow-y-auto px-4">
+      {/* ── Track list ── */}
+      <div className={embeddedMode ? 'px-4' : 'flex-1 overflow-y-auto px-4'}>
 
         {/* ── Queue tab ── */}
         {queueTab === 'queue' && (
@@ -387,39 +560,23 @@ export function Queue({ desktopMode = false }: { desktopMode?: boolean }) {
               onReorder={(newOrder) => setQueue(newOrder)}
               className="space-y-0.5"
             >
-              {queue.map((track, i) => {
-                const tid = makeTrackId(track);
-                return (
-                  <Reorder.Item key={`${track.artist}-${track.track}-${i}`} value={track}>
-                    <div className="flex items-center gap-2">
-                      <div style={{ color: '#C2C0BB', cursor: 'grab', flexShrink: 0 }}>
-                        <GripVertical size={16} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <TrackRow
-                          track={track}
-                          isActive={activeSource === 'queue' && activeIndex === i}
-                          isPlaying={isPlaying && activeSource === 'queue' && activeIndex === i}
-                          onPlay={() => playTrack('queue', i)}
-                          onRemove={() => removeFromQueue(i)}
-                          onAddToPlaylist={() => setAddToPlaylistTrack(track)}
-                          isLiked={likedSet.has(tid)}
-                          isDisliked={dislikedSet.has(tid)}
-                          onLike={() => likedSet.has(tid) ? unlikeTrack(tid) : likeTrack(track)}
-                          onDislike={() => dislikedSet.has(tid) ? undislikeTrack(tid) : dislikeTrack(tid)}
-                          onStartRadio={() => handleStartRadio(track)}
-                          onArtistClick={() => {
-                            setDiscographyTracks([]);
-                            setDiscographyArtist(null);
-                            setDiscographyQuery(track.artist);
-                            setActiveScreen('library');
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </Reorder.Item>
-                );
-              })}
+              {queue.map((track, i) => (
+                <DraggableItem
+                  key={`${track.artist}-${track.track}-${i}`}
+                  track={track} i={i}
+                  activeSource={activeSource} activeIndex={activeIndex} isPlaying={isPlaying}
+                  makeTrackId={makeTrackId} likedSet={likedSet} dislikedSet={dislikedSet}
+                  playTrack={playTrack} removeFromQueue={removeFromQueue}
+                  setAddToPlaylistTrack={setAddToPlaylistTrack}
+                  likeTrack={likeTrack} unlikeTrack={unlikeTrack}
+                  dislikeTrack={dislikeTrack} undislikeTrack={undislikeTrack}
+                  handleStartRadio={handleStartRadio}
+                  setDiscographyTracks={setDiscographyTracks}
+                  setDiscographyArtist={setDiscographyArtist}
+                  setDiscographyQuery={setDiscographyQuery}
+                  setActiveScreen={setActiveScreen}
+                />
+              ))}
             </Reorder.Group>
           )
         )}
@@ -529,9 +686,21 @@ export function Queue({ desktopMode = false }: { desktopMode?: boolean }) {
             </div>
           </div>
         )}
+
+        {/* Bottom padding */}
+        {!embeddedMode && <div className="h-24" />}
+        {embeddedMode && <div className="h-4" />}
       </div>
 
-      <div className="h-24" />
+      {/* ── Toast notification ── */}
+      {saveToast && (
+        <div
+          className="fixed bottom-24 left-4 right-4 z-50 py-2.5 px-4 rounded-xl text-sm font-semibold text-white text-center"
+          style={{ background: '#0E0E0E', maxWidth: 430, margin: '0 auto' }}
+        >
+          {saveToast}
+        </div>
+      )}
 
       <style>{`
         .no-scrollbar::-webkit-scrollbar { display: none; }

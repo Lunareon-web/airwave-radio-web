@@ -14,6 +14,7 @@ import { Vinyl } from '@/components/ui/Vinyl';
 import { Chip } from '@/components/ui/Chip';
 import { FreqBars } from '@/components/ui/FreqBars';
 import { YTPlayer, ytCommand } from '@/components/player/YTPlayer';
+import { Queue } from '@/components/screens/Queue';
 
 const SOURCE_LABEL: Record<string, string> = {
   discography: 'Discography',
@@ -263,12 +264,15 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
     );
   }
 
+  // ── Mobile: fixed player + scrollable Up-Next queue ─────────────────────
   return (
-    <div className="flex flex-col h-full px-4 pt-4 pb-2 overflow-y-auto">
+    <div className="flex flex-col overflow-hidden" style={{ height: '100svh', background: '#F0EFEC' }}>
 
-      {/* ── Header (hidden in desktop mode — top bar handles navigation) ── */}
-      {!desktopMode && (
-        <div className="flex items-center justify-between mb-4">
+      {/* ═══ FIXED PLAYER SECTION ══════════════════════════════════════════ */}
+      <div className="flex-shrink-0 px-4 pt-4 pb-2">
+
+        {/* Header */}
+        <div className="flex items-center justify-between mb-3">
           <button
             className="w-9 h-9 rounded-full flex items-center justify-center"
             style={{ background: '#E8E6E1', color: '#6B6B6B' }}
@@ -276,7 +280,6 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
           >
             <MoreHorizontal size={18} />
           </button>
-
           <div className="flex flex-col items-center gap-0.5 min-w-0">
             <div className="flex items-center gap-2">
               <FreqBars active={isPlaying} />
@@ -290,7 +293,6 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
               </span>
             )}
           </div>
-
           <button
             className="w-9 h-9 rounded-full flex items-center justify-center"
             style={{ background: '#E8E6E1', color: '#6B6B6B' }}
@@ -299,177 +301,120 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
             <Settings size={18} />
           </button>
         </div>
-      )}
 
-      {/* Desktop: compact source/status line */}
-      {desktopMode && (
-        <div className="flex items-center justify-center gap-2 mb-3">
-          <FreqBars active={isPlaying} />
-          <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#9A9A9A' }}>
-            Now Broadcasting
-          </span>
-          {activeSource && (
-            <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: '#C2C0BB' }}>
-              · {SOURCE_LABEL[activeSource]}
-            </span>
-          )}
-        </div>
-      )}
+        {/* ── Video mode: player ── */}
+        {settings.playbackMode === 'video' && ownsPlayer && (
+          <div
+            className="rounded-2xl overflow-hidden mb-3"
+            style={{ display: track?.videoId ? 'block' : 'none', background: '#0E0E0E' }}
+          >
+            <YTPlayer />
+          </div>
+        )}
 
-      {/* ── Video Mode ── always mount YTPlayer so it can resolve the videoId itself */}
-      {settings.playbackMode === 'video' && ownsPlayer && (
-        <div
-          className="mb-4 rounded-2xl overflow-hidden"
-          style={{ display: track?.videoId ? 'block' : 'none' }}
-        >
-          <YTPlayer />
-        </div>
-      )}
-
-      {/* ── Video mode controls ── */}
-      {settings.playbackMode === 'video' && (
-        <div className="rounded-2xl p-4 mb-4 flex flex-col gap-3" style={{ background: '#FFFFFF', boxShadow: '0 2px 12px rgba(14,14,14,0.06)' }}>
-          <div>
+        {/* ── Video mode: controls ── */}
+        {settings.playbackMode === 'video' && (
+          <div className="rounded-2xl p-4 mb-3 flex flex-col gap-2.5"
+               style={{ background: '#FFFFFF', boxShadow: '0 2px 12px rgba(14,14,14,0.06)' }}>
             <div className="flex items-center gap-2">
               <h2 className="text-base font-bold truncate flex-1" style={{ color: '#131313' }}>
                 {track?.track || 'No track'}
               </h2>
               {track && (
-                <button
-                  onClick={() => setAddToPlaylistTrack(track)}
-                  title="Add to playlist"
-                  className="flex-shrink-0 transition-opacity hover:opacity-70"
-                  style={{ color: '#9A9A9A' }}
-                >
+                <button onClick={() => setAddToPlaylistTrack(track)} style={{ color: '#9A9A9A' }}>
                   <ListMusic size={16} />
                 </button>
               )}
             </div>
             {track?.artist ? (
               <button
-                className="text-sm truncate text-left w-full transition-colors hover:opacity-70"
+                className="text-sm truncate text-left w-full hover:opacity-70 -mt-1"
                 style={{ color: '#9A9A9A' }}
-                onClick={() => {
-                  if (!track?.artist) return;
-                  const store = useAppStore.getState();
-                  store.setDiscographyTracks([]);
-                  store.setDiscographyArtist(null);
-                  store.setDiscographyQuery(track.artist);
-                  store.setActiveScreen('library');
-                }}
-                title={`Browse ${track.artist} discography`}
+                onClick={() => { const s = useAppStore.getState(); s.setDiscographyTracks([]); s.setDiscographyArtist(null); s.setDiscographyQuery(track.artist); s.setActiveScreen('library'); }}
               >
                 {track.artist}
               </button>
             ) : (
-              <p className="text-sm truncate" style={{ color: '#9A9A9A' }}>{track?.artist}</p>
+              <p className="text-sm -mt-1" style={{ color: '#9A9A9A' }}>Select a source to begin</p>
             )}
-          </div>
-          {/* Seek */}
-          <div>
-            <input
-              type="range" min={0} max={duration || 100} value={currentTime}
+            <input type="range" min={0} max={duration || 100} value={currentTime}
               onChange={handleSeek}
               className="w-full h-1 rounded-full appearance-none cursor-pointer"
-              style={seekStyleLight}
-            />
-            <div className="flex justify-between mt-1">
+              style={seekStyleLight} />
+            <div className="flex justify-between -mt-1">
               <span className="text-[10px]" style={{ color: '#9A9A9A' }}>{formatTime(currentTime)}</span>
               <span className="text-[10px]" style={{ color: '#9A9A9A' }}>{formatTime(duration)}</span>
             </div>
+            <TransportRow light />
+            <ShuffleVolumeRow light />
           </div>
-          <TransportRow light />
-          <ShuffleVolumeRow light />
-        </div>
-      )}
+        )}
 
-      {/* ── Audio mode: Hero black card ── */}
-      {settings.playbackMode === 'audio' && (
-        <div
-          className="rounded-3xl p-5 mb-4 flex flex-col items-center"
-          style={{ background: '#0E0E0E', boxShadow: '0 8px 32px rgba(0,0,0,0.25)' }}
-        >
-          {/* Vinyl */}
-          <div className="mb-4">
-            <Vinyl isPlaying={isPlaying} size={170} coverArt={track?.coverArt} artist={track?.artist || ''} />
-          </div>
-
-          {/* Track info */}
-          <div className="text-center mb-3 w-full">
-            <div className="flex items-center justify-center gap-2">
-              <h2 className="text-xl font-extrabold mb-0.5 leading-tight truncate" style={{ color: '#FFFFFF' }}>
-                {track?.track || 'No track selected'}
-              </h2>
-              {track && (
+        {/* ── Audio mode: hero black card ── */}
+        {settings.playbackMode === 'audio' && (
+          <div className="rounded-3xl p-4 mb-2 flex flex-col items-center"
+               style={{ background: '#0E0E0E', boxShadow: '0 8px 32px rgba(0,0,0,0.25)' }}>
+            {/* Vinyl */}
+            <div className="mb-3">
+              <Vinyl isPlaying={isPlaying} size={150} coverArt={track?.coverArt} artist={track?.artist || ''} />
+            </div>
+            {/* Track info */}
+            <div className="text-center mb-2.5 w-full">
+              <div className="flex items-center justify-center gap-2">
+                <h2 className="text-lg font-extrabold mb-0.5 leading-tight truncate" style={{ color: '#FFFFFF' }}>
+                  {track?.track || 'No track selected'}
+                </h2>
+                {track && (
+                  <button onClick={() => setAddToPlaylistTrack(track)} className="mb-0.5 flex-shrink-0" style={{ color: '#6B6B6B' }}>
+                    <ListMusic size={15} />
+                  </button>
+                )}
+              </div>
+              {track?.artist ? (
                 <button
-                  onClick={() => setAddToPlaylistTrack(track)}
-                  title="Add to playlist"
-                  className="mb-0.5 flex-shrink-0 transition-opacity hover:opacity-80"
-                  style={{ color: '#6B6B6B' }}
+                  className="text-sm font-medium truncate max-w-full hover:opacity-80"
+                  style={{ color: '#9A9A9A' }}
+                  onClick={() => { const s = useAppStore.getState(); s.setDiscographyTracks([]); s.setDiscographyArtist(null); s.setDiscographyQuery(track.artist); s.setActiveScreen('library'); }}
                 >
-                  <ListMusic size={16} />
+                  {track.artist}
                 </button>
+              ) : (
+                <p className="text-sm font-medium" style={{ color: '#9A9A9A' }}>Select a source to begin</p>
+              )}
+              {resolveMessage && (
+                <p className="text-[10px] mt-1 truncate font-mono" style={{ color: '#555' }}>
+                  {track?.status === 'searching' && <Loader2 size={10} className="inline mr-1 animate-spin" />}
+                  {resolveMessage}
+                </p>
               )}
             </div>
-            {track?.artist ? (
-              <button
-                className="text-sm font-medium truncate max-w-full transition-colors hover:opacity-80"
-                style={{ color: '#9A9A9A' }}
-                onClick={() => {
-                  if (!track?.artist) return;
-                  const store = useAppStore.getState();
-                  store.setDiscographyTracks([]);
-                  store.setDiscographyArtist(null);
-                  store.setDiscographyQuery(track.artist);
-                  store.setActiveScreen('library');
-                }}
-                title={`Browse ${track.artist} discography`}
-              >
-                {track.artist}
-              </button>
-            ) : (
-              <p className="text-sm font-medium truncate" style={{ color: '#9A9A9A' }}>
-                Select a source to begin
-              </p>
-            )}
-            {resolveMessage && (
-              <p className="text-[10px] mt-1 truncate font-mono" style={{ color: '#555' }}>
-                {track?.status === 'searching' && <Loader2 size={10} className="inline mr-1 animate-spin" />}
-                {resolveMessage}
-              </p>
-            )}
-          </div>
-
-          {/* Seek bar */}
-          <div className="w-full mb-3">
-            <input
-              type="range" min={0} max={duration || 100} value={currentTime}
-              onChange={handleSeek}
-              className="w-full h-1 rounded-full appearance-none cursor-pointer"
-              style={seekStyle}
-            />
-            <div className="flex justify-between mt-1">
-              <span className="text-[10px]" style={{ color: '#6B6B6B' }}>{formatTime(currentTime)}</span>
-              <span className="text-[10px]" style={{ color: '#6B6B6B' }}>{formatTime(duration)}</span>
+            {/* Seek */}
+            <div className="w-full mb-2.5">
+              <input type="range" min={0} max={duration || 100} value={currentTime}
+                onChange={handleSeek}
+                className="w-full h-1 rounded-full appearance-none cursor-pointer"
+                style={seekStyle} />
+              <div className="flex justify-between mt-1">
+                <span className="text-[10px]" style={{ color: '#6B6B6B' }}>{formatTime(currentTime)}</span>
+                <span className="text-[10px]" style={{ color: '#6B6B6B' }}>{formatTime(duration)}</span>
+              </div>
             </div>
+            <div className="w-full mb-2"><TransportRow /></div>
+            <div className="w-full"><ShuffleVolumeRow /></div>
           </div>
+        )}
 
-          {/* Transport */}
-          <div className="w-full mb-3">
-            <TransportRow />
-          </div>
+        {/* Hidden YT audio iframe */}
+        {settings.playbackMode === 'audio' && ownsPlayer && <YTPlayer />}
+      </div>
 
-          {/* Shuffle + Volume + Start Radio */}
-          <div className="w-full">
-            <ShuffleVolumeRow />
-          </div>
-        </div>
-      )}
+      {/* ═══ SCROLLABLE UP-NEXT QUEUE ══════════════════════════════════════ */}
+      <div className="flex-1 min-h-0 overflow-y-auto" style={{ borderTop: '1px solid #DCDBD7' }}>
+        <Queue embeddedMode />
+      </div>
 
-      {/* Hidden audio iframe — only ONE instance per page */}
-      {settings.playbackMode === 'audio' && ownsPlayer && <YTPlayer />}
-
-      {!desktopMode && <div className="h-24" />}
+      {/* Bottom nav spacer */}
+      <div className="flex-shrink-0 h-20" />
     </div>
   );
 }

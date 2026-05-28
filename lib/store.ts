@@ -115,7 +115,7 @@ interface AppState {
   setLibrary: (lib: LibraryStore) => void;
 
   // Actions — Playlists
-  createPlaylist: (name: string) => Promise<void>;
+  createPlaylist: (name: string) => Promise<string | null>;
   deletePlaylist: (id: string) => void;
   addToPlaylist: (playlistId: string, track: CuratedTrack) => void;
   removeFromPlaylist: (playlistId: string, trackId: string) => void;
@@ -409,7 +409,7 @@ export const useAppStore = create<AppState>()(
     setLibrary: (lib) => set({ library: lib }),
 
     // Playlists
-    createPlaylist: async (name: string) => {
+    createPlaylist: async (name: string): Promise<string | null> => {
       try {
         const res = await fetch('/api/library/playlists', {
           method: 'POST',
@@ -419,8 +419,10 @@ export const useAppStore = create<AppState>()(
         const { playlist } = await res.json();
         if (playlist) {
           set((s) => ({ library: { ...s.library, playlists: [...s.library.playlists, playlist as Playlist] } }));
+          return (playlist as Playlist).id;
         }
       } catch (e) { console.error(e); }
+      return null;
     },
 
     deletePlaylist: (id) => {
