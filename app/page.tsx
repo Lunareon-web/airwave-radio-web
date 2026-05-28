@@ -235,12 +235,19 @@ export default function HomePage() {
     const store = useAppStore.getState();
     const track = store.getCurrentTrack();
 
-    // NOTE: seekforward / seekbackward intentionally NOT registered —
-    // on Android they take the 3 widget slots and hide prev/next buttons.
+    // seekforward / seekbackward NOT registered — they steal the 3 button slots.
+    // seekto IS registered — it attaches to the seek-bar drag without taking a slot.
     navigator.mediaSession.setActionHandler('play',          () => useAppStore.getState().setIsPlaying(true));
     navigator.mediaSession.setActionHandler('pause',         () => useAppStore.getState().setIsPlaying(false));
     navigator.mediaSession.setActionHandler('nexttrack',     () => useAppStore.getState().skipCurrent());
     navigator.mediaSession.setActionHandler('previoustrack', () => useAppStore.getState().playPrev());
+    navigator.mediaSession.setActionHandler('seekto', (details) => {
+      if (details.seekTime == null) return;
+      const t = details.seekTime;
+      ytCommand.send?.('seekTo', [t, true]);
+      ytCommand.syncSeek?.(t);
+      useAppStore.getState().setCurrentTime(t);
+    });
 
     if (track) {
       navigator.mediaSession.metadata = new MediaMetadata({
@@ -250,10 +257,17 @@ export default function HomePage() {
       });
     }
     navigator.mediaSession.playbackState = store.isPlaying ? 'playing' : 'paused';
-    // NOTE: setPositionState() intentionally NOT called.
-    // When a seek bar is set, Android Chrome switches to a "full player"
-    // notification layout that only shows Play/Pause — prev/next buttons
-    // disappear. Omitting it keeps the compact 3-button layout [⏮][⏸][⏭].
+    // setPositionState → seek bar display in the OS widget.
+    // playbackRate: 0 when paused so the browser stops advancing position.
+    if (store.duration > 0) {
+      try {
+        navigator.mediaSession.setPositionState({
+          duration:     store.duration,
+          playbackRate: store.isPlaying ? 1 : 0,
+          position:     Math.min(store.currentTime, store.duration),
+        });
+      } catch { /* not universally supported */ }
+    }
   };
 
   // Register immediately on mount (covers cold-start + session-restore cases)
