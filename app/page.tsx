@@ -229,22 +229,11 @@ export default function HomePage() {
     navigator.mediaSession.setActionHandler('pause',         () => useAppStore.getState().setIsPlaying(false));
     navigator.mediaSession.setActionHandler('nexttrack',     () => useAppStore.getState().skipCurrent());
     navigator.mediaSession.setActionHandler('previoustrack', () => useAppStore.getState().playPrev());
-    navigator.mediaSession.setActionHandler('seekforward',   (details) => {
-      const s = useAppStore.getState();
-      const skipSec = details.seekOffset ?? 10;
-      const newTime = Math.min(s.currentTime + skipSec, s.duration);
-      ytCommand.send?.('seekTo', [newTime, true]);
-      s.setCurrentTime(newTime);
-    });
-    navigator.mediaSession.setActionHandler('seekbackward',  (details) => {
-      const s = useAppStore.getState();
-      const skipSec = details.seekOffset ?? 10;
-      const newTime = Math.max(s.currentTime - skipSec, 0);
-      ytCommand.send?.('seekTo', [newTime, true]);
-      s.setCurrentTime(newTime);
-    });
+    // NOTE: seekforward / seekbackward are intentionally NOT registered.
+    // On Android Chrome they take the 3 notification-widget slots and
+    // replace the nexttrack / previoustrack buttons with seek arrows.
     return () => {
-      (['play', 'pause', 'nexttrack', 'previoustrack', 'seekforward', 'seekbackward'] as MediaSessionAction[]).forEach((a) =>
+      (['play', 'pause', 'nexttrack', 'previoustrack'] as MediaSessionAction[]).forEach((a) =>
         navigator.mediaSession.setActionHandler(a, null)
       );
     };

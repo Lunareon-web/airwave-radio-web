@@ -14,13 +14,17 @@ import { useEffect, useRef } from 'react';
 import { useAppStore } from '@/lib/store';
 import type { ActiveSource } from '@/lib/types';
 
-const SOURCES: ActiveSource[] = ['discography', 'curated', 'queue'];
-const THROTTLE_MS = 3000;
+const SOURCES: ActiveSource[] = ['discography', 'curated', 'queue', 'library'];
+// 1.5 s throttle — faster cover-art loading while still being quota-friendly.
+// YTPlayer's active window is only current + next 1 now (pre-fetch = 2),
+// so BackgroundResolver skips only those 2 and gets to other tracks sooner.
+const THROTTLE_MS = 1500;
 
 export function BackgroundResolver() {
   const discoLen   = useAppStore((s) => s.discographyTracks.length);
   const curatedLen = useAppStore((s) => s.curatedTracks.length);
   const queueLen   = useAppStore((s) => s.queue.length);
+  const libraryLen = useAppStore((s) => s.libraryPlaylist.length);
 
   // cancelRef lets us abort an in-progress run when deps change
   const cancelRef = useRef(false);
@@ -41,9 +45,9 @@ export function BackgroundResolver() {
           const current = useAppStore.getState().getSourceTracks(source)[i];
           if (!current || current.status !== 'idle') continue;
 
-          // Leave YTPlayer's active + next-5 window alone
+          // Leave YTPlayer's active + next-1 window alone (pre-fetch = 2 tracks)
           const { activeIndex, activeSource } = useAppStore.getState();
-          if (source === activeSource && i >= activeIndex && i <= activeIndex + 5) continue;
+          if (source === activeSource && i >= activeIndex && i <= activeIndex + 1) continue;
 
           useAppStore.getState().updateTrackInSource(source, i, { status: 'searching' });
 
@@ -97,7 +101,7 @@ export function BackgroundResolver() {
     run();
     return () => { cancelRef.current = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [discoLen, curatedLen, queueLen]);
+  }, [discoLen, curatedLen, queueLen, libraryLen]);
 
   return null;
 }

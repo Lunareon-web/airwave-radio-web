@@ -80,12 +80,24 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
         lastYtRef.current = { time: ct, ms: Date.now() };
         setCurrentTime(ct);
       }
-      if (typeof info.duration === 'number' && (info.duration as number) > 0) setDuration(info.duration as number);
+
+      // Duration: prefer info.duration (number), fall back to videoData.lengthSeconds (string)
+      // Some YT embed versions / topic channels send duration only via videoData.
+      const rawDur  = info.duration;
+      const vidData = info.videoData as Record<string, unknown> | undefined;
+      const parsedDur = typeof rawDur === 'number'
+        ? rawDur
+        : typeof rawDur === 'string'
+          ? parseFloat(rawDur)
+          : vidData?.lengthSeconds
+            ? parseFloat(String(vidData.lengthSeconds))
+            : 0;
+      if (parsedDur > 0) setDuration(parsedDur);
 
       if (typeof info.playerState === 'number') {
         const state = info.playerState as number;
-        const ct = (info.currentTime as number) || 0;
-        const dur = (info.duration as number) || 0;
+        const ct  = (info.currentTime as number) || 0;
+        const dur = parsedDur || (info.duration as number) || 0;
 
         if (state === 1) {
           ytReadyRef.current = true;
@@ -109,6 +121,30 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
         } else if (state === 0) {
           if (!nearEndFiredRef.current) playNext();
         }
+      }
+    }
+
+    // onStateChange: older/simpler YT event format
+    if (data.event === 'onStateChange') {
+      const state = typeof data.info === 'number' ? (data.info as number) : -1;
+      if (state === 1) {
+        ytReadyRef.current = true;
+        setIsPlaying(true);
+        if (onReady) onReady();
+      } else if (state === 0 && !nearEndFiredRef.current) {
+        nearEndFiredRef.current = true;
+        playNext();
+      }
+    }
+
+    // onError: video unavailable (100), embedding disabled (101 / 150), etc.
+    // Skip to next track instead of silently freezing.
+    if (data.event === 'onError') {
+      const code = data.info;
+      console.warn(`[YT] onError code=${code} — skipping track`);
+      if (!nearEndFiredRef.current) {
+        nearEndFiredRef.current = true;
+        setTimeout(() => useAppStore.getState().playNext(), 800);
       }
     }
   }, [setCurrentTime, setDuration, setIsPlaying, playNext, onReady]);

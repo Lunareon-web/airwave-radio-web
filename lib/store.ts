@@ -247,7 +247,7 @@ export const useAppStore = create<AppState>()(
       const tracks = get().getSourceTracks(source);
       const track = tracks[index];
       if (!track) return;
-      set({ activeSource: source, activeIndex: index, isPlaying: true, currentTime: 0 });
+      set({ activeSource: source, activeIndex: index, isPlaying: true, currentTime: 0, duration: 0 });
       if (track.status === 'ready') get().addToHistory(track);
     },
 
@@ -274,7 +274,7 @@ export const useAppStore = create<AppState>()(
         ? Math.floor(Math.random() * tracks.length)
         : s.activeIndex + 1;
       if (nextIndex < tracks.length) {
-        set({ activeIndex: nextIndex, isPlaying: true, currentTime: 0 });
+        set({ activeIndex: nextIndex, isPlaying: true, currentTime: 0, duration: 0 });
         const track = tracks[nextIndex];
         if (track?.status === 'ready') get().addToHistory(track);
       } else {
@@ -287,7 +287,7 @@ export const useAppStore = create<AppState>()(
       if (!s.activeSource) return;
       const prevIndex = s.activeIndex - 1;
       if (prevIndex >= 0) {
-        set({ activeIndex: prevIndex, isPlaying: true, currentTime: 0 });
+        set({ activeIndex: prevIndex, isPlaying: true, currentTime: 0, duration: 0 });
       }
     },
 
@@ -303,7 +303,7 @@ export const useAppStore = create<AppState>()(
         ? Math.floor(Math.random() * tracks.length)
         : s.activeIndex + 1;
       if (nextIndex < tracks.length) {
-        set({ activeIndex: nextIndex, isPlaying: true, currentTime: 0 });
+        set({ activeIndex: nextIndex, isPlaying: true, currentTime: 0, duration: 0 });
         const track = tracks[nextIndex];
         if (track?.status === 'ready') get().addToHistory(track);
       } else {

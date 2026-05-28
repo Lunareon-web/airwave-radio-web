@@ -406,11 +406,11 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
           </button>
         </div>
 
-        {/* ── Video mode: player ── */}
+        {/* ── Video mode: player — max 40 vh so queue is still visible below ── */}
         {settings.playbackMode === 'video' && ownsPlayer && (
           <div
             className="rounded-2xl overflow-hidden mb-3"
-            style={{ display: track?.videoId ? 'block' : 'none', background: '#0E0E0E' }}
+            style={{ display: track?.videoId ? 'block' : 'none', background: '#0E0E0E', maxHeight: '40vh' }}
           >
             <YTPlayer />
           </div>
