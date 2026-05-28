@@ -29,7 +29,7 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-export function NowPlaying() {
+export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
   const {
     isPlaying, setIsPlaying, currentTime, setCurrentTime, duration,
     playNext, playPrev, skipCurrent,
@@ -191,38 +191,55 @@ export function NowPlaying() {
   return (
     <div className="flex flex-col h-full px-4 pt-4 pb-2 overflow-y-auto">
 
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between mb-4">
-        <button
-          className="w-9 h-9 rounded-full flex items-center justify-center"
-          style={{ background: '#E8E6E1', color: '#6B6B6B' }}
-          onClick={() => useAppStore.getState().setActiveScreen('queue')}
-        >
-          <MoreHorizontal size={18} />
-        </button>
+      {/* ── Header (hidden in desktop mode — top bar handles navigation) ── */}
+      {!desktopMode && (
+        <div className="flex items-center justify-between mb-4">
+          <button
+            className="w-9 h-9 rounded-full flex items-center justify-center"
+            style={{ background: '#E8E6E1', color: '#6B6B6B' }}
+            onClick={() => useAppStore.getState().setActiveScreen('queue')}
+          >
+            <MoreHorizontal size={18} />
+          </button>
 
-        <div className="flex flex-col items-center gap-0.5 min-w-0">
-          <div className="flex items-center gap-2">
-            <FreqBars active={isPlaying} />
-            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#9A9A9A' }}>
-              Now Broadcasting
-            </span>
+          <div className="flex flex-col items-center gap-0.5 min-w-0">
+            <div className="flex items-center gap-2">
+              <FreqBars active={isPlaying} />
+              <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#9A9A9A' }}>
+                Now Broadcasting
+              </span>
+            </div>
+            {activeSource && (
+              <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: '#C2C0BB' }}>
+                {SOURCE_LABEL[activeSource]} · {settings.playbackMode === 'video' ? 'Video' : 'Audio'}
+              </span>
+            )}
           </div>
+
+          <button
+            className="w-9 h-9 rounded-full flex items-center justify-center"
+            style={{ background: '#E8E6E1', color: '#6B6B6B' }}
+            onClick={() => setShowSettings(true)}
+          >
+            <Settings size={18} />
+          </button>
+        </div>
+      )}
+
+      {/* Desktop: compact source/status line */}
+      {desktopMode && (
+        <div className="flex items-center justify-center gap-2 mb-3">
+          <FreqBars active={isPlaying} />
+          <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#9A9A9A' }}>
+            Now Broadcasting
+          </span>
           {activeSource && (
             <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: '#C2C0BB' }}>
-              {SOURCE_LABEL[activeSource]} · {settings.playbackMode === 'video' ? 'Video' : 'Audio'}
+              · {SOURCE_LABEL[activeSource]}
             </span>
           )}
         </div>
-
-        <button
-          className="w-9 h-9 rounded-full flex items-center justify-center"
-          style={{ background: '#E8E6E1', color: '#6B6B6B' }}
-          onClick={() => setShowSettings(true)}
-        >
-          <Settings size={18} />
-        </button>
-      </div>
+      )}
 
       {/* ── Video Mode ── */}
       {settings.playbackMode === 'video' && track?.videoId && (

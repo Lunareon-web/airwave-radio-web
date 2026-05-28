@@ -11,14 +11,18 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'YouTube API key required' }, { status: 400 });
     }
 
-    // Check cache
-    const cached = await sql`SELECT video_id, title, thumbnail FROM youtube_cache WHERE search_query = ${q}`;
-    if (cached.length > 0) {
-      return NextResponse.json({
-        videoId: cached[0].video_id,
-        title: cached[0].title,
-        thumbnail: cached[0].thumbnail
-      });
+    // Check cache — non-fatal (table may not exist yet)
+    try {
+      const cached = await sql`SELECT video_id, title, thumbnail FROM youtube_cache WHERE search_query = ${q}`;
+      if (cached.length > 0) {
+        return NextResponse.json({
+          videoId: cached[0].video_id,
+          title: cached[0].title,
+          thumbnail: cached[0].thumbnail
+        });
+      }
+    } catch {
+      // youtube_cache table may not exist yet — skip cache, proceed to live search
     }
 
     const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=1&type=video&q=${encodeURIComponent(q)}&key=${youtubeKey}`;
@@ -40,12 +44,16 @@ export async function GET(req: NextRequest) {
       item.snippet.thumbnails?.medium?.url ||
       item.snippet.thumbnails?.default?.url || '';
 
-    // Cache result
-    await sql`
-      INSERT INTO youtube_cache (search_query, video_id, title, thumbnail)
-      VALUES (${q}, ${videoId}, ${title}, ${thumbnail})
-      ON CONFLICT (search_query) DO UPDATE SET video_id = ${videoId}, title = ${title}, thumbnail = ${thumbnail}, cached_at = NOW()
-    `;
+    // Cache result — non-fatal
+    try {
+      await sql`
+        INSERT INTO youtube_cache (search_query, video_id, title, thumbnail)
+        VALUES (${q}, ${videoId}, ${title}, ${thumbnail})
+        ON CONFLICT (search_query) DO UPDATE SET video_id = ${videoId}, title = ${title}, thumbnail = ${thumbnail}, cached_at = NOW()
+      `;
+    } catch {
+      // Cache write failed — not critical, continue
+    }
 
     return NextResponse.json({ videoId, title, thumbnail });
   } catch (error) {

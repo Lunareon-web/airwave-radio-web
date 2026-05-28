@@ -171,7 +171,7 @@ function TrackRow({
   );
 }
 
-export function Queue() {
+export function Queue({ desktopMode = false }: { desktopMode?: boolean }) {
   const {
     queue, setQueue, playedTracks, skippedTracks,
     activeSource, activeIndex, isPlaying,
@@ -214,45 +214,65 @@ export function Queue() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 pt-4 pb-3">
-        <button
-          onClick={() => setActiveScreen('radio')}
-          className="w-9 h-9 rounded-full flex items-center justify-center"
-          style={{ background: '#E8E6E1', color: '#6B6B6B' }}
-        >
-          <X size={18} />
-        </button>
-        <h2 className="text-base font-bold" style={{ color: '#131313' }}>Up Next</h2>
-        <div className="w-9" />
-      </div>
-
-      {/* Mini player */}
-      {currentTrack && (
-        <div className="mx-4 mb-4 rounded-2xl p-3 flex items-center gap-3" style={{ background: '#0E0E0E' }}>
-          <AlbumArt
-            artist={currentTrack.artist}
-            track={currentTrack.track}
-            coverArt={currentTrack.coverArt}
-            size={44}
-            rounded="xl"
-          />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold truncate" style={{ color: '#FFFFFF' }}>{currentTrack.track}</p>
-            <p className="text-xs truncate" style={{ color: '#9A9A9A' }}>{currentTrack.artist}</p>
+      {/* Header — simplified on desktop (no back button, no mini-player needed) */}
+      {!desktopMode && (
+        <>
+          <div className="flex items-center justify-between px-4 pt-4 pb-3">
+            <button
+              onClick={() => setActiveScreen('radio')}
+              className="w-9 h-9 rounded-full flex items-center justify-center"
+              style={{ background: '#E8E6E1', color: '#6B6B6B' }}
+            >
+              <X size={18} />
+            </button>
+            <h2 className="text-base font-bold" style={{ color: '#131313' }}>Up Next</h2>
+            <div className="w-9" />
           </div>
-          <button
-            onClick={() => setIsPlaying(!isPlaying)}
-            className="w-9 h-9 rounded-full flex items-center justify-center"
-            style={{ background: '#FF4D3D' }}
-          >
-            {isPlaying
-              ? <Pause size={16} color="white" fill="white" />
-              : <Play  size={16} color="white" fill="white" />}
-          </button>
-          <button onClick={() => useAppStore.getState().skipCurrent()} style={{ color: '#6B6B6B' }}>
-            <SkipForward size={18} />
-          </button>
+
+          {/* Mini player — only on mobile (desktop already shows NowPlaying) */}
+          {currentTrack && (
+            <div className="mx-4 mb-4 rounded-2xl p-3 flex items-center gap-3" style={{ background: '#0E0E0E' }}>
+              <AlbumArt
+                artist={currentTrack.artist}
+                track={currentTrack.track}
+                coverArt={currentTrack.coverArt}
+                size={44}
+                rounded="xl"
+              />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold truncate" style={{ color: '#FFFFFF' }}>{currentTrack.track}</p>
+                <p className="text-xs truncate" style={{ color: '#9A9A9A' }}>{currentTrack.artist}</p>
+              </div>
+              <button
+                onClick={() => setIsPlaying(!isPlaying)}
+                className="w-9 h-9 rounded-full flex items-center justify-center"
+                style={{ background: '#FF4D3D' }}
+              >
+                {isPlaying
+                  ? <Pause size={16} color="white" fill="white" />
+                  : <Play  size={16} color="white" fill="white" />}
+              </button>
+              <button onClick={() => useAppStore.getState().skipCurrent()} style={{ color: '#6B6B6B' }}>
+                <SkipForward size={18} />
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Desktop queue header */}
+      {desktopMode && (
+        <div className="flex items-center justify-between px-4 pt-4 pb-2">
+          <h2 className="text-sm font-bold uppercase tracking-wider" style={{ color: '#9A9A9A' }}>Up Next</h2>
+          {queue.length > 0 && (
+            <button
+              onClick={() => { useAppStore.getState().setActiveSource(null); useAppStore.getState().setActiveIndex(-1); useAppStore.getState().setIsPlaying(false); setQueue([]); }}
+              style={{ color: '#C2C0BB' }} title="Clear queue"
+              className="hover:opacity-70 transition-opacity"
+            >
+              <X size={15} />
+            </button>
+          )}
         </div>
       )}
 
