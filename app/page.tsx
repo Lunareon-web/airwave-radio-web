@@ -250,15 +250,10 @@ export default function HomePage() {
       });
     }
     navigator.mediaSession.playbackState = store.isPlaying ? 'playing' : 'paused';
-    if (store.duration > 0) {
-      try {
-        navigator.mediaSession.setPositionState({
-          duration: store.duration,
-          playbackRate: 1,
-          position: Math.min(store.currentTime, store.duration),
-        });
-      } catch { /* setPositionState not universally supported */ }
-    }
+    // NOTE: setPositionState() intentionally NOT called.
+    // When a seek bar is set, Android Chrome switches to a "full player"
+    // notification layout that only shows Play/Pause — prev/next buttons
+    // disappear. Omitting it keeps the compact 3-button layout [⏮][⏸][⏭].
   };
 
   // Register immediately on mount (covers cold-start + session-restore cases)
