@@ -220,30 +220,28 @@ export default function HomePage() {
     return () => window.removeEventListener('keydown', handleKey);
   }, []);
 
-  // ── Media Session: register nav handlers ONCE on mount ───────────────────
-  // Handlers must never be removed between track changes — if they go null
-  // even briefly, Android drops the prev/next buttons from the OS widget.
-  useEffect(() => {
+  // ── Media Session: register handlers + update metadata ──────────────────
+  // Runs on every track / play-state change AND on mount (empty-dep call below).
+  //
+  // WHY re-register on each change instead of once on mount:
+  //   The YouTube iframe registers its OWN media session ~0.5-1 s after it
+  //   starts playing. On Android Chrome this overrides our registration and
+  //   removes the prev/next buttons from the lock-screen widget.
+  //   Calling setActionHandler again AFTER the iframe's registration restores
+  //   our handlers as the active ones.  The 1500 ms delayed re-assert below
+  //   is timed to fire after the iframe's setup has settled.
+  const assertMediaSession = () => {
     if (!('mediaSession' in navigator)) return;
+    const store = useAppStore.getState();
+    const track = store.getCurrentTrack();
+
+    // NOTE: seekforward / seekbackward intentionally NOT registered —
+    // on Android they take the 3 widget slots and hide prev/next buttons.
     navigator.mediaSession.setActionHandler('play',          () => useAppStore.getState().setIsPlaying(true));
     navigator.mediaSession.setActionHandler('pause',         () => useAppStore.getState().setIsPlaying(false));
     navigator.mediaSession.setActionHandler('nexttrack',     () => useAppStore.getState().skipCurrent());
     navigator.mediaSession.setActionHandler('previoustrack', () => useAppStore.getState().playPrev());
-    // NOTE: seekforward / seekbackward are intentionally NOT registered.
-    // On Android Chrome they take the 3 notification-widget slots and
-    // replace the nexttrack / previoustrack buttons with seek arrows.
-    return () => {
-      (['play', 'pause', 'nexttrack', 'previoustrack'] as MediaSessionAction[]).forEach((a) =>
-        navigator.mediaSession.setActionHandler(a, null)
-      );
-    };
-  }, []); // ← empty deps: register once, clean up on unmount only
 
-  // ── Media Session: update metadata + state on track / play state change ──
-  useEffect(() => {
-    if (!('mediaSession' in navigator)) return;
-    const store = useAppStore.getState();
-    const track = store.getCurrentTrack();
     if (track) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title:   track.track,
@@ -251,7 +249,7 @@ export default function HomePage() {
         artwork: track.coverArt ? [{ src: track.coverArt, sizes: '512x512', type: 'image/jpeg' }] : [],
       });
     }
-    navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+    navigator.mediaSession.playbackState = store.isPlaying ? 'playing' : 'paused';
     if (store.duration > 0) {
       try {
         navigator.mediaSession.setPositionState({
@@ -261,6 +259,19 @@ export default function HomePage() {
         });
       } catch { /* setPositionState not universally supported */ }
     }
+  };
+
+  // Register immediately on mount (covers cold-start + session-restore cases)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { assertMediaSession(); }, []);
+
+  // Re-register on every track / play-state change + 1.5 s later
+  useEffect(() => {
+    assertMediaSession();
+    // The YouTube iframe establishes its own media session ~0.5-1 s after
+    // starting to play; re-asserting at 1.5 s ensures our handlers win.
+    const t = setTimeout(assertMediaSession, 1500);
+    return () => clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying, activeIndex, activeSource]);
 
