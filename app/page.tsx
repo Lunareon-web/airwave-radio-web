@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Sparkles, Library, Settings } from 'lucide-react';
+import { Sparkles, Settings } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { NowPlaying } from '@/components/screens/NowPlaying';
 import { Queue } from '@/components/screens/Queue';
@@ -26,41 +26,6 @@ function resetStatus(tracks: CuratedTrack[]): CuratedTrack[] {
   );
 }
 
-// ── Desktop left-panel (Muse / Library toggle) ───────────────────────────────
-function DesktopLeftPanel() {
-  const [tab, setTab] = useState<'muse' | 'library'>('muse');
-  return (
-    <div className="flex flex-col h-full">
-      {/* Tab switcher */}
-      <div className="flex items-center gap-1 px-3 pt-3 pb-2 flex-shrink-0">
-        <button
-          onClick={() => setTab('muse')}
-          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold transition-all"
-          style={{
-            background: tab === 'muse' ? '#0E0E0E' : '#E8E6E1',
-            color:      tab === 'muse' ? '#FFFFFF' : '#6B6B6B',
-          }}
-        >
-          <Sparkles size={13} /> Muse
-        </button>
-        <button
-          onClick={() => setTab('library')}
-          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold transition-all"
-          style={{
-            background: tab === 'library' ? '#0E0E0E' : '#E8E6E1',
-            color:      tab === 'library' ? '#FFFFFF' : '#6B6B6B',
-          }}
-        >
-          <Library size={13} /> Library
-        </button>
-      </div>
-      {/* Panel content */}
-      <div className="flex-1 overflow-y-auto">
-        {tab === 'muse' ? <Muse /> : <LibraryScreen />}
-      </div>
-    </div>
-  );
-}
 
 export default function HomePage() {
   const {
@@ -274,25 +239,35 @@ export default function HomePage() {
         {/* 3-column body */}
         <div className="flex flex-1 overflow-hidden">
 
-          {/* ── Left column: Muse + Library ── */}
+          {/* ── Left column: Library (discography search + liked / history / playlists) ── */}
           <div
-            className="flex-shrink-0 flex flex-col"
-            style={{ width: 360, borderRight: '1px solid #DCDBD7', overflow: 'hidden' }}
+            className="flex-shrink-0 overflow-y-auto"
+            style={{ width: 320, borderRight: '1px solid #DCDBD7' }}
           >
-            <DesktopLeftPanel />
+            <LibraryScreen />
           </div>
 
-          {/* ── Center column: Player (NowPlaying + YTPlayer always mounted) ── */}
-          <div className="flex-1 overflow-y-auto" style={{ minWidth: 320 }}>
-            <NowPlaying desktopMode />
+          {/* ── Center column: Player on top, Queue below (CSS grid split) ── */}
+          <div
+            className="flex-1 overflow-hidden"
+            style={{ minWidth: 320, display: 'grid', gridTemplateRows: '55fr 45fr' }}
+          >
+            {/* Player */}
+            <div className="overflow-y-auto" style={{ borderBottom: '1px solid #DCDBD7' }}>
+              <NowPlaying desktopMode />
+            </div>
+            {/* Queue */}
+            <div className="overflow-y-auto">
+              <Queue desktopMode />
+            </div>
           </div>
 
-          {/* ── Right column: Queue ── */}
+          {/* ── Right column: Muse (AI curation + curated tracklist) ── */}
           <div
             className="flex-shrink-0 overflow-y-auto"
             style={{ width: 360, borderLeft: '1px solid #DCDBD7' }}
           >
-            <Queue desktopMode />
+            <Muse />
           </div>
 
         </div>
