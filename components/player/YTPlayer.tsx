@@ -41,11 +41,8 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   const videoId = currentTrack?.videoId;
   const isVideoMode = settings.playbackMode === 'video';
 
-  // youtube-nocookie.com: privacy-enhanced embed that Chrome doesn't apply
-  // its special "YouTube iframe" media-session override to — lets our Media
-  // Session API handlers (prev/next) show in the lock screen notification.
   const embedUrl = videoId
-    ? `https://www.youtube-nocookie.com/embed/${videoId}?enablejsapi=1&autoplay=1&controls=${isVideoMode ? 1 : 0}&rel=0&modestbranding=1&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`
+    ? `https://www.youtube.com/embed/${videoId}?enablejsapi=1&autoplay=1&controls=${isVideoMode ? 1 : 0}&rel=0&modestbranding=1&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`
     : null;
 
   // Send commands to iframe

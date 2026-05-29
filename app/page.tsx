@@ -267,16 +267,18 @@ export default function HomePage() {
     // handlers (prev/next/seekto) alongside the seek bar.
     // When an iframe calls it, Chrome overrides us and hides prev/next.
     const { duration, currentTime } = store;
-    if (duration > 0) {
+    const validDuration = isFinite(duration) && duration > 0;
+    const validPosition = isFinite(currentTime) && currentTime >= 0;
+    if (validDuration && validPosition) {
       try {
         navigator.mediaSession.setPositionState({
           duration,
-          playbackRate: store.isPlaying ? 1 : 0,
-          position: Math.min(Math.max(currentTime, 0), duration),
+          playbackRate: 1,
+          position: Math.min(currentTime, duration),
         });
-      } catch { /* ignore — older Chrome may throw */ }
+      } catch { /* ignore — older Chrome may throw for invalid values */ }
     } else {
-      // Duration unknown yet — clear position state (no seek bar → 3-button layout)
+      // Duration/position not yet known — clear so Chrome falls back to 3-button layout
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       try { (navigator.mediaSession as any).setPositionState(null); } catch { /* ignore */ }
       try { navigator.mediaSession.setPositionState(); } catch { /* ignore */ }
