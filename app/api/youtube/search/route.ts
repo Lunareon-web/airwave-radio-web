@@ -30,17 +30,18 @@ const PIPED_INSTANCES = [
   'https://piped-api.codeberg.page',
 ];
 
-type FallbackResult = { videoId: string; title: string; thumbnail: string };
+type FallbackResult = { videoId: string; title: string; thumbnail: string; duration?: number };
 
 /** Search one Invidious instance — throws on any failure. */
 async function tryInvidious(instance: string, q: string): Promise<FallbackResult> {
-  const url = `${instance}/api/v1/search?q=${encodeURIComponent(q)}&type=video&fields=videoId,title,videoThumbnails`;
+  const url = `${instance}/api/v1/search?q=${encodeURIComponent(q)}&type=video&fields=videoId,title,videoThumbnails,lengthSeconds`;
   const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json() as Array<{
     videoId?: string;
     title?: string;
     videoThumbnails?: Array<{ quality: string; url: string }>;
+    lengthSeconds?: number;
   }>;
   const item = data?.[0];
   if (!item?.videoId) throw new Error('no result');
@@ -48,8 +49,10 @@ async function tryInvidious(instance: string, q: string): Promise<FallbackResult
     item.videoThumbnails?.find((t) => t.quality === 'high')?.url ||
     item.videoThumbnails?.[0]?.url ||
     `https://i.ytimg.com/vi/${item.videoId}/hqdefault.jpg`;
+  const duration = typeof item.lengthSeconds === 'number' && item.lengthSeconds > 0
+    ? item.lengthSeconds : undefined;
   console.log(`[youtube-fallback] Invidious hit (${instance})`);
-  return { videoId: item.videoId, title: item.title || q, thumbnail };
+  return { videoId: item.videoId, title: item.title || q, thumbnail, duration };
 }
 
 /**
@@ -71,12 +74,15 @@ async function tryYouTubeScraper(q: string): Promise<FallbackResult> {
   const videoIdMatch = html.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/);
   const videoId = videoIdMatch?.[1];
   if (!videoId) throw new Error('no videoId in HTML');
-  const titleMatch = html.match(/"title"\s*:\s*\{"runs"\s*:\s*\[\{"text"\s*:\s*"([^"]+)"/);
+  const titleMatch    = html.match(/"title"\s*:\s*\{"runs"\s*:\s*\[\{"text"\s*:\s*"([^"]+)"/);
+  const durationMatch = html.match(/"lengthSeconds"\s*:\s*"(\d+)"/);
+  const duration      = durationMatch ? parseInt(durationMatch[1], 10) : undefined;
   console.log(`[youtube-fallback] HTML scraper hit`);
   return {
     videoId,
     title:     titleMatch?.[1] || q,
     thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+    duration,
   };
 }
 
@@ -86,17 +92,20 @@ async function tryPiped(instance: string, q: string): Promise<FallbackResult> {
   const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json() as {
-    items?: Array<{ url?: string; title?: string; thumbnail?: string }>;
+    items?: Array<{ url?: string; title?: string; thumbnail?: string; duration?: number }>;
   };
   const item = data?.items?.[0];
   if (!item?.url) throw new Error('no result');
   const videoId = new URL('https://www.youtube.com' + item.url).searchParams.get('v');
   if (!videoId) throw new Error('no videoId');
+  const duration = typeof item.duration === 'number' && item.duration > 0
+    ? item.duration : undefined;
   console.log(`[youtube-fallback] Piped hit (${instance})`);
   return {
     videoId,
     title:     item.title || q,
     thumbnail: item.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+    duration,
   };
 }
 
@@ -167,7 +176,7 @@ export async function GET(req: NextRequest) {
       const fallback = await searchFallback(q);
       if (fallback) {
         await cacheResult(fallback.videoId, fallback.title, fallback.thumbnail);
-        return NextResponse.json(fallback);
+        return NextResponse.json({ videoId: fallback.videoId, title: fallback.title, thumbnail: fallback.thumbnail, duration: fallback.duration });
       }
       return NextResponse.json(
         { error: 'No YouTube API key configured. Add one in Settings or set YOUTUBE_API_KEY_1 in environment variables.' },
@@ -250,7 +259,7 @@ export async function GET(req: NextRequest) {
     const fallback = await searchFallback(q);
     if (fallback) {
       await cacheResult(fallback.videoId, fallback.title, fallback.thumbnail);
-      return NextResponse.json(fallback);
+      return NextResponse.json({ videoId: fallback.videoId, title: fallback.title, thumbnail: fallback.thumbnail, duration: fallback.duration });
     }
 
     // Nothing worked

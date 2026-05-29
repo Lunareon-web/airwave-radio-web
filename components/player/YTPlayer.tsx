@@ -263,7 +263,13 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
               coverArt: (data.thumbnail as string) || `https://i.ytimg.com/vi/${data.videoId}/hqdefault.jpg`,
               resolvedTitle: data.title as string,
             });
-            if (i === activeIndex) setResolveMessage(`▶ ${(data.title as string) || track.track}`);
+            if (i === activeIndex) {
+              setResolveMessage(`▶ ${(data.title as string) || track.track}`);
+              // Pre-populate duration so the progress bar works even before
+              // infoDelivery events arrive from the iframe (unreliable on Android).
+              const dur = data.duration as number | undefined;
+              if (typeof dur === 'number' && dur > 0) setDuration(dur);
+            }
           } else if (httpStatus === 429) {
             consecutive429Ref.current += 1;
             updateTrackInSource(activeSource, i, { status: 'failed' });
@@ -304,17 +310,33 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSource, activeIndex]);
 
-  // Second play attempt after 2.5s if not yet playing (slow YT API init)
+  // Per-track init: reset state, start play, establish infoDelivery handshake.
   useEffect(() => {
     if (!videoId) return;
-    ytReadyRef.current = false;
+    // Reset per-track refs so stale data from the previous track doesn't bleed in.
+    lastYtRef.current      = { time: 0, ms: 0 };
+    ytReadyRef.current     = false;
     nearEndFiredRef.current = false;
+
+    const sendListening = () => {
+      // The YouTube iframe starts sending infoDelivery events only after it
+      // receives the "listening" handshake from the host page.
+      // Without this, events may never arrive on some Android devices.
+      iframeRef.current?.contentWindow?.postMessage(
+        JSON.stringify({ event: 'listening', id: 1 }), '*'
+      );
+    };
+
     const t1 = setTimeout(() => {
       sendCommand('playVideo');
       sendCommand('setVolume', [isMuted ? 0 : Math.round(volume * 100)]);
+      sendListening();
     }, 600);
     const t2 = setTimeout(() => {
-      if (!ytReadyRef.current) sendCommand('playVideo');
+      if (!ytReadyRef.current) {
+        sendCommand('playVideo');
+        sendListening();
+      }
     }, 2500);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
