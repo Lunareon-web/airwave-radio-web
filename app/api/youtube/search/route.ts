@@ -52,6 +52,34 @@ async function tryInvidious(instance: string, q: string): Promise<FallbackResult
   return { videoId: item.videoId, title: item.title || q, thumbnail };
 }
 
+/**
+ * Scrape youtube.com/results HTML — zero API quota, works like the desktop app.
+ * Vercel's Node runtime can reach youtube.com; this is the most reliable fallback.
+ */
+async function tryYouTubeScraper(q: string): Promise<FallbackResult> {
+  const url =
+    `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}&sp=EgIQAQ%253D%253D`;
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(4000),
+    headers: {
+      'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const html = await res.text();
+  const videoIdMatch = html.match(/"videoId"\s*:\s*"([a-zA-Z0-9_-]{11})"/);
+  const videoId = videoIdMatch?.[1];
+  if (!videoId) throw new Error('no videoId in HTML');
+  const titleMatch = html.match(/"title"\s*:\s*\{"runs"\s*:\s*\[\{"text"\s*:\s*"([^"]+)"/);
+  console.log(`[youtube-fallback] HTML scraper hit`);
+  return {
+    videoId,
+    title:     titleMatch?.[1] || q,
+    thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+  };
+}
+
 /** Search one Piped instance — throws on any failure. */
 async function tryPiped(instance: string, q: string): Promise<FallbackResult> {
   const url = `${instance}/search?q=${encodeURIComponent(q)}&filter=music_songs`;
@@ -80,6 +108,7 @@ async function tryPiped(instance: string, q: string): Promise<FallbackResult> {
 async function searchFallback(q: string): Promise<FallbackResult | null> {
   try {
     return await Promise.any([
+      tryYouTubeScraper(q),                                          // zero-quota, most reliable
       ...INVIDIOUS_INSTANCES.map((inst) => tryInvidious(inst, q)),
       ...PIPED_INSTANCES.map((inst) => tryPiped(inst, q)),
     ]);
