@@ -308,21 +308,21 @@ export default function HomePage() {
   }, [assertMediaSession, isPlaying, activeIndex, activeSource]);
 
   // Continuous re-assertion while playing.
-  // YouTube's iframe calls setPositionState() every ~1 s indefinitely to keep
-  // the seek-bar position fresh. A 500 ms interval means we ALWAYS clear it
-  // within ≤500 ms — ensuring the 3-button layout dominates over time.
+  // YouTube's iframe calls setPositionState() every ~1 s indefinitely.
+  // 300 ms interval guarantees we override it within one YouTube cycle.
   useEffect(() => {
     if (!isPlaying) return;
-    const id = setInterval(assertMediaSession, 500);
+    const id = setInterval(assertMediaSession, 300);
     return () => clearInterval(id);
   }, [assertMediaSession, isPlaying]);
 
   // onYTReady: fired by YTPlayer when playerState=1 (video actually playing).
-  // YouTube registers its own session RIGHT at this moment — re-asserting
-  // immediately + 600 ms later ensures we win that exact registration window.
+  // YouTube's iframe re-registers its own Media Session in the ~0–800 ms
+  // window after playerState=1. We re-assert at multiple checkpoints to ensure
+  // we always override it — 150 ms targets the most common registration delay.
   const onYTReady = useCallback(() => {
     assertMediaSession();
-    setTimeout(assertMediaSession, 600);
+    [50, 150, 300, 600, 1200].forEach((ms) => setTimeout(assertMediaSession, ms));
   }, [assertMediaSession]);
 
   return (

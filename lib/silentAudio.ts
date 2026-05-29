@@ -32,7 +32,11 @@ export function startSilentAudio(): void {
   if (!_audio) {
     _audio = new Audio(SILENT_WAV);
     _audio.loop   = true;
-    _audio.volume = 0;
+    // volume=0 is treated by Chrome Android as "not producing audio" and
+    // excluded from Media Session priority — the page never wins audio focus.
+    // 0.001 is inaudible (~-60 dB) but registers as an active audio stream.
+    _audio.volume = 0.001;
+    _audio.muted  = false; // explicit: do NOT use the muted attribute
   }
   _audio
     .play()
