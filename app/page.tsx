@@ -13,6 +13,7 @@ import { SettingsPanel } from '@/components/ui/SettingsPanel';
 import { AddToPlaylistModal } from '@/components/ui/AddToPlaylistModal';
 import { BackgroundResolver } from '@/components/player/BackgroundResolver';
 import { ytCommand } from '@/components/player/YTPlayer';
+import { startSilentAudio, msAssert } from '@/lib/silentAudio';
 import type { CuratedTrack, DiscographyArtist } from '@/lib/types';
 
 const SCREEN_VARIANTS = {
@@ -203,6 +204,8 @@ export default function HomePage() {
       const store = useAppStore.getState();
       if (e.code === 'Space') {
         e.preventDefault();
+        startSilentAudio(); // keyboard is a user gesture — secure audio focus
+        msAssert.fn?.();    // register handlers synchronously while in gesture context
         store.setIsPlaying(!store.isPlaying);
       } else if (e.code === 'ArrowRight') {
         e.preventDefault();
@@ -284,6 +287,13 @@ export default function HomePage() {
       try { navigator.mediaSession.setPositionState(); } catch { /* ignore */ }
     }
   }, []);
+
+  // Expose assertMediaSession via module-level ref so NowPlaying can call it
+  // synchronously inside play-button onClick (user-gesture context).
+  useEffect(() => {
+    msAssert.fn = assertMediaSession;
+    return () => { msAssert.fn = null; };
+  }, [assertMediaSession]);
 
   // Register immediately on mount (cold-start / session-restore)
   useEffect(() => { assertMediaSession(); }, [assertMediaSession]);

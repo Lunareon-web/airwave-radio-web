@@ -14,6 +14,7 @@ import { Vinyl } from '@/components/ui/Vinyl';
 import { Chip } from '@/components/ui/Chip';
 import { FreqBars } from '@/components/ui/FreqBars';
 import { YTPlayer, ytCommand } from '@/components/player/YTPlayer';
+import { startSilentAudio, msAssert } from '@/lib/silentAudio';
 import { Queue } from '@/components/screens/Queue';
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -131,7 +132,16 @@ export function NowPlaying({ desktopMode = false, onYTReady }: { desktopMode?: b
         <SkipBack size={26} />
       </button>
       <button
-        onClick={() => setIsPlaying(!isPlaying)}
+        onClick={() => {
+          // startSilentAudio: secures audio focus for the main page so Chrome
+          // uses OUR Media Session notification (with prev/next) instead of the
+          // YouTube iframe's session (pause-only). Must run in a user-gesture.
+          startSilentAudio();
+          // msAssert: re-registers all handlers synchronously inside the gesture
+          // window — belt-and-suspenders alongside the useEffect re-assertion.
+          msAssert.fn?.();
+          setIsPlaying(!isPlaying);
+        }}
         className="w-14 h-14 rounded-full flex items-center justify-center transition-transform active:scale-95"
         style={{ background: '#FF4D3D', boxShadow: '0 4px 16px rgba(255,77,61,0.4)' }}
       >
