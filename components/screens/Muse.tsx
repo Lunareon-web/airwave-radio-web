@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, Plus, Sparkles, Play, Pause, Loader2, ListMusic, ChevronDown, ChevronUp, ListPlus } from 'lucide-react';
+import { Send, Plus, Sparkles, Play, Pause, Loader2, ListMusic, ChevronDown, ChevronUp, ListPlus, BookmarkPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
 import { AlbumArt } from '@/components/ui/AlbumArt';
@@ -109,10 +109,12 @@ function MessageTrackList({
   tracks,
   onPlayAll,
   onAddAll,
+  onSaveToPlaylist,
 }: {
   tracks: CuratedTrack[];
   onPlayAll: () => void;
   onAddAll: () => void;
+  onSaveToPlaylist: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const { addToQueue, setAddToPlaylistTrack } = useAppStore();
@@ -126,6 +128,14 @@ function MessageTrackList({
           {tracks.length} tracks
         </span>
         <div className="flex items-center gap-2">
+          <button
+            onClick={onSaveToPlaylist}
+            className="w-7 h-7 flex items-center justify-center rounded-full transition-opacity hover:opacity-70"
+            style={{ background: 'rgba(255,77,61,0.08)', color: '#FF4D3D' }}
+            title="Save all to playlist"
+          >
+            <BookmarkPlus size={13} />
+          </button>
           <button
             onClick={onAddAll}
             className="text-xs font-bold px-2.5 py-1.5 rounded-full flex items-center gap-1.5"
@@ -186,7 +196,7 @@ export function Muse() {
     isCurating, setIsCurating, curationError, setCurationError,
     curatedTracks, setCuratedTracks, currentPrompt, setCurrentPrompt,
     addToQueue, playNow, setActiveScreen,
-    settings, setAddToPlaylistTrack,
+    settings, setAddToPlaylistTrack, setAddToPlaylistTracks,
     // AI Advisor
     advisorData, setAdvisorData, isAnalyzing, setIsAnalyzing,
     getCurrentTrack,
@@ -578,6 +588,7 @@ export function Muse() {
                     tracks={msg.tracks}
                     onPlayAll={() => handlePlayAll(msg.tracks!)}
                     onAddAll={() => handleAddAll(msg.tracks!)}
+                    onSaveToPlaylist={() => setAddToPlaylistTracks([...msg.tracks!])}
                   />
                 )}
               </div>
