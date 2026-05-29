@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Sparkles, Settings } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
@@ -221,27 +221,28 @@ export default function HomePage() {
   }, []);
 
   // ── Media Session: register handlers + update metadata ──────────────────
-  // Runs on every track / play-state change AND on mount (empty-dep call below).
+  // Strategy: YouTube's iframe registers its OWN media session at several
+  // points after playback starts (typically 0.3–2 s). This overrides our
+  // registration, replaces metadata with YouTube's channel name, and — most
+  // critically — calls setPositionState() which switches Android Chrome to
+  // the "full player" notification layout (seek bar + only [⏸], no prev/next).
   //
-  // WHY re-register on each change instead of once on mount:
-  //   The YouTube iframe registers its OWN media session ~0.5-1 s after it
-  //   starts playing. On Android Chrome this overrides our registration and
-  //   removes the prev/next buttons from the lock-screen widget.
-  //   Calling setActionHandler again AFTER the iframe's registration restores
-  //   our handlers as the active ones.  The 1500 ms delayed re-assert below
-  //   is timed to fire after the iframe's setup has settled.
-  const assertMediaSession = () => {
+  // Counter-strategy:
+  //   1. Re-assert at 300, 800, 1500, 2500, 4000 ms after every track/state change.
+  //   2. Explicitly call setPositionState() with NO args to clear the seek-bar
+  //      layout that YouTube's iframe set — restoring [⏮][⏸][⏭].
+  //   3. Re-assert immediately when YTPlayer fires onReady (state=1) —
+  //      the most precise moment right after YouTube's own registration.
+  const assertMediaSession = useCallback(() => {
     if (!('mediaSession' in navigator)) return;
     const store = useAppStore.getState();
     const track = store.getCurrentTrack();
 
-    // seekforward / seekbackward NOT registered — they steal the 3 button slots.
-    // seekto IS registered — it attaches to the seek-bar drag without taking a slot.
     navigator.mediaSession.setActionHandler('play',          () => useAppStore.getState().setIsPlaying(true));
     navigator.mediaSession.setActionHandler('pause',         () => useAppStore.getState().setIsPlaying(false));
     navigator.mediaSession.setActionHandler('nexttrack',     () => useAppStore.getState().skipCurrent());
     navigator.mediaSession.setActionHandler('previoustrack', () => useAppStore.getState().playPrev());
-    // seekto = draggable seek bar without consuming a button slot.
+    // seekto attaches to seek-bar drag without consuming a button slot.
     // seekforward / seekbackward are NOT registered — they steal the [⏮][⏭] slots.
     navigator.mediaSession.setActionHandler('seekto', (details) => {
       if (details.seekTime == null) return;
@@ -259,26 +260,32 @@ export default function HomePage() {
       });
     }
     navigator.mediaSession.playbackState = store.isPlaying ? 'playing' : 'paused';
-    // NOTE: setPositionState() intentionally NOT called.
-    // Android Chrome enforces two mutually exclusive notification layouts:
-    //   • with setPositionState  → seek bar visible + only [⏸] (no prev/next)
-    //   • without setPositionState → [⏮][⏸][⏭] visible (no seek bar)
-    // For a radio app, prev/next control is more important than the seek bar.
-  };
 
-  // Register immediately on mount (covers cold-start + session-restore cases)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { assertMediaSession(); }, []);
+    // KEY: clear any setPositionState the YouTube iframe called.
+    // Chrome shows only [⏸] + seek bar when position state is active;
+    // calling setPositionState() with no args resets it → restores [⏮][⏸][⏭].
+    try { navigator.mediaSession.setPositionState(); } catch { /* ignore — some environments throw */ }
+  }, []);
 
-  // Re-register on every track / play-state change + 1.5 s later
+  // Register immediately on mount (cold-start / session-restore)
+  useEffect(() => { assertMediaSession(); }, [assertMediaSession]);
+
+  // Re-assert at multiple intervals after every track / play-state change.
+  // 5 checkpoints cover the full window in which YouTube re-registers its session.
   useEffect(() => {
     assertMediaSession();
-    // The YouTube iframe establishes its own media session ~0.5-1 s after
-    // starting to play; re-asserting at 1.5 s ensures our handlers win.
-    const t = setTimeout(assertMediaSession, 1500);
-    return () => clearTimeout(t);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPlaying, activeIndex, activeSource]);
+    const delays = [300, 800, 1500, 2500, 4000];
+    const timers = delays.map((ms) => setTimeout(assertMediaSession, ms));
+    return () => timers.forEach(clearTimeout);
+  }, [assertMediaSession, isPlaying, activeIndex, activeSource]);
+
+  // onYTReady: fired by YTPlayer when playerState=1 (video actually playing).
+  // YouTube registers its own session RIGHT at this moment — re-asserting
+  // immediately + 600 ms later ensures we win that exact registration window.
+  const onYTReady = useCallback(() => {
+    assertMediaSession();
+    setTimeout(assertMediaSession, 600);
+  }, [assertMediaSession]);
 
   return (
     <>
@@ -344,7 +351,7 @@ export default function HomePage() {
           >
             {/* Player — clips content, never scrolls */}
             <div className="overflow-hidden" style={{ borderBottom: '1px solid #DCDBD7' }}>
-              <NowPlaying desktopMode />
+              <NowPlaying desktopMode onYTReady={onYTReady} />
             </div>
             {/* Queue — scrollable */}
             <div className="overflow-y-auto">
@@ -395,7 +402,7 @@ export default function HomePage() {
               minHeight: '100svh', background: '#F0EFEC', overflowY: 'auto',
             }}
           >
-            <NowPlaying />
+            <NowPlaying onYTReady={onYTReady} />
           </div>
 
           <AnimatePresence mode="wait">

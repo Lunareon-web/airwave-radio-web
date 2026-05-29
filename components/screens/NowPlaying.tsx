@@ -36,7 +36,7 @@ function formatDuration(seconds: number): string {
   return formatTime(seconds);
 }
 
-export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
+export function NowPlaying({ desktopMode = false, onYTReady }: { desktopMode?: boolean; onYTReady?: () => void }) {
   // ── Which instance should own the YTPlayer? ──────────────────────────────
   // Both desktop and mobile <NowPlaying> are always mounted (display:none/flex).
   // Without this guard BOTH iframes play simultaneously → echo effect.
@@ -221,7 +221,7 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
               overflow: 'hidden',
             }}
           >
-            <YTPlayer fillContainer />
+            <YTPlayer fillContainer onReady={onYTReady} />
           </div>
         )}
 
@@ -363,7 +363,7 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
         </div>
 
         {/* Hidden YT iframe — must stay mounted here in desktop audio mode */}
-        {ownsPlayer && <YTPlayer />}
+        {ownsPlayer && <YTPlayer onReady={onYTReady} />}
       </div>
     );
   }
@@ -412,7 +412,7 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
             className="rounded-2xl overflow-hidden mb-3"
             style={{ display: track?.videoId ? 'block' : 'none', background: '#0E0E0E', maxHeight: '40vh' }}
           >
-            <YTPlayer />
+            <YTPlayer onReady={onYTReady} />
           </div>
         )}
 
@@ -509,7 +509,7 @@ export function NowPlaying({ desktopMode = false }: { desktopMode?: boolean }) {
         )}
 
         {/* Hidden YT audio iframe */}
-        {settings.playbackMode === 'audio' && ownsPlayer && <YTPlayer />}
+        {settings.playbackMode === 'audio' && ownsPlayer && <YTPlayer onReady={onYTReady} />}
       </div>
 
       {/* ═══ SCROLLABLE UP-NEXT QUEUE ══════════════════════════════════════ */}
