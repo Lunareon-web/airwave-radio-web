@@ -261,13 +261,26 @@ export default function HomePage() {
     }
     navigator.mediaSession.playbackState = store.isPlaying ? 'playing' : 'paused';
 
-    // KEY: clear any position state the YouTube iframe set.
-    // Chrome shows only [⏸] + seek bar when position state is active;
-    // clearing it → restores compact 3-button [⏮][⏸][⏭] layout.
-    // Try null first (most explicit clear), fall back to no-arg form.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    try { (navigator.mediaSession as any).setPositionState(null); } catch { /* ignore */ }
-    try { navigator.mediaSession.setPositionState(); } catch { /* ignore */ }
+    // OWN the position state with our data so Chrome uses our session as the
+    // authoritative one — not the YouTube iframe's.
+    // When the TOP-LEVEL PAGE calls setPositionState Chrome respects all registered
+    // handlers (prev/next/seekto) alongside the seek bar.
+    // When an iframe calls it, Chrome overrides us and hides prev/next.
+    const { duration, currentTime } = store;
+    if (duration > 0) {
+      try {
+        navigator.mediaSession.setPositionState({
+          duration,
+          playbackRate: store.isPlaying ? 1 : 0,
+          position: Math.min(Math.max(currentTime, 0), duration),
+        });
+      } catch { /* ignore — older Chrome may throw */ }
+    } else {
+      // Duration unknown yet — clear position state (no seek bar → 3-button layout)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      try { (navigator.mediaSession as any).setPositionState(null); } catch { /* ignore */ }
+      try { navigator.mediaSession.setPositionState(); } catch { /* ignore */ }
+    }
   }, []);
 
   // Register immediately on mount (cold-start / session-restore)

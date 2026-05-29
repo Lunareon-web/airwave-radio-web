@@ -27,6 +27,9 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   const consecutive429Ref = useRef(0);
   // Tracks the last YT-reported time & wall-clock stamp for local interpolation
   const lastYtRef = useRef<{ time: number; ms: number }>({ time: 0, ms: 0 });
+  // After a manual seek, ignore infoDelivery currentTime updates for 800 ms so the
+  // pre-seek position that YouTube sends before processing seekTo doesn't snap the slider back.
+  const seekBlockUntilRef = useRef(0);
   const {
     activeSource, activeIndex, isPlaying, volume, isMuted,
     setIsPlaying, setCurrentTime, setDuration, playNext,
@@ -38,8 +41,11 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   const videoId = currentTrack?.videoId;
   const isVideoMode = settings.playbackMode === 'video';
 
+  // youtube-nocookie.com: privacy-enhanced embed that Chrome doesn't apply
+  // its special "YouTube iframe" media-session override to — lets our Media
+  // Session API handlers (prev/next) show in the lock screen notification.
   const embedUrl = videoId
-    ? `https://www.youtube.com/embed/${videoId}?enablejsapi=1&autoplay=1&controls=${isVideoMode ? 1 : 0}&rel=0&modestbranding=1&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`
+    ? `https://www.youtube-nocookie.com/embed/${videoId}?enablejsapi=1&autoplay=1&controls=${isVideoMode ? 1 : 0}&rel=0&modestbranding=1&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`
     : null;
 
   // Send commands to iframe
@@ -57,6 +63,10 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
     ytCommand.syncSeek = (time: number) => {
       // Reset the local-timer baseline so it interpolates from the new position
       lastYtRef.current = { time, ms: Date.now() };
+      // Block infoDelivery currentTime updates for 800 ms: YouTube sends the
+      // pre-seek position before it processes our seekTo command; ignoring it
+      // prevents the slider from snapping back to the old position.
+      seekBlockUntilRef.current = Date.now() + 800;
     };
     return () => { ytCommand.send = null; ytCommand.syncSeek = null; };
   }, [sendCommand]);
@@ -78,9 +88,17 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
     if (data.event === 'initialDelivery' || data.event === 'infoDelivery') {
       const info = data.info || {};
       if (typeof info.currentTime === 'number') {
-        const ct = info.currentTime as number;
-        lastYtRef.current = { time: ct, ms: Date.now() };
-        setCurrentTime(ct);
+        // Skip stale pre-seek updates: YouTube sends the old position ~0–300 ms
+        // after a seekTo command before it processes the seek; honour the block
+        // window set by syncSeek() to prevent the slider snapping back.
+        if (Date.now() < seekBlockUntilRef.current) {
+          // Still update the baseline time so interpolation stays correct
+          lastYtRef.current = { time: info.currentTime as number, ms: Date.now() };
+        } else {
+          const ct = info.currentTime as number;
+          lastYtRef.current = { time: ct, ms: Date.now() };
+          setCurrentTime(ct);
+        }
       }
 
       // Duration: prefer info.duration (number), fall back to videoData.lengthSeconds (string)
