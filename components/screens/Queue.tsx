@@ -72,10 +72,12 @@ function TrackRow({
         <button
           onClick={onPlayNow}
           className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-all hover:opacity-80"
-          style={{ background: '#FF4D3D' }}
+          style={{ background: isActive && isPlaying ? '#FF4D3D' : '#E8E6E1' }}
           title="Play now"
         >
-          <Play size={12} color="white" fill="white" />
+          {isActive && isPlaying
+            ? <Pause size={12} color="white"   fill="white"   />
+            : <Play  size={12} color="#6B6B6B" fill="#6B6B6B" />}
         </button>
       )}
 
