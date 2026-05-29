@@ -44,6 +44,8 @@ interface AppState {
 
   // Add-to-playlist modal (global)
   addToPlaylistTrack: CuratedTrack | null;
+  /** Multi-track variant — used to add the entire Queue to a playlist at once. */
+  addToPlaylistTracks: CuratedTrack[] | null;
 
   // AI Advisor
   advisorData: AIAdvisorData | null;
@@ -97,6 +99,7 @@ interface AppState {
   setResolveMessage: (m: string) => void;
   setShowSettings: (v: boolean) => void;
   setAddToPlaylistTrack: (track: CuratedTrack | null) => void;
+  setAddToPlaylistTracks: (tracks: CuratedTrack[] | null) => void;
 
   // Actions — AI Advisor
   setAdvisorData: (d: AIAdvisorData | null) => void;
@@ -167,6 +170,7 @@ export const useAppStore = create<AppState>()(
     resolveMessage: '',
     showSettings: false,
     addToPlaylistTrack: null,
+    addToPlaylistTracks: null,
     advisorData: null,
     isAnalyzing: false,
     chatMessages: [],
@@ -323,7 +327,8 @@ export const useAppStore = create<AppState>()(
     setCurationError: (e) => set({ curationError: e }),
     setResolveMessage: (m) => set({ resolveMessage: m }),
     setShowSettings: (v) => set({ showSettings: v }),
-    setAddToPlaylistTrack: (track) => set({ addToPlaylistTrack: track }),
+    setAddToPlaylistTrack:  (track)  => set({ addToPlaylistTrack: track }),
+    setAddToPlaylistTracks: (tracks) => set({ addToPlaylistTracks: tracks }),
 
     // AI Advisor
     setAdvisorData: (d) => set({ advisorData: d }),

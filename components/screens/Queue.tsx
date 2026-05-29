@@ -1,10 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import {
   X, GripVertical, Plus, Play, Pause, SkipForward,
   Heart, ThumbsDown, Sparkles, ArrowUpDown, Trash2,
-  Loader2, CheckCircle2, ListMusic, BookmarkPlus,
+  Loader2, CheckCircle2, ListMusic, ListPlus,
 } from 'lucide-react';
 import { Reorder, useDragControls } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
@@ -280,41 +279,12 @@ export function Queue({
     addToQueue, playNow, curatedTracks, setActiveScreen,
     queueTab, setQueueTab, queueSort, sortQueueBy,
     library, likeTrack, unlikeTrack, dislikeTrack, undislikeTrack,
-    setCurrentPrompt, setAddToPlaylistTrack,
+    setCurrentPrompt, setAddToPlaylistTrack, setAddToPlaylistTracks,
     setDiscographyTracks, setDiscographyArtist, setDiscographyQuery,
-    createPlaylist, addToPlaylist,
   } = useAppStore();
 
   const getCurrentTrack = useAppStore((s) => s.getCurrentTrack);
   const currentTrack = getCurrentTrack();
-
-  // ── Save-as-Playlist state ───────────────────────────────────────────────
-  const [showSaveForm, setShowSaveForm] = useState(false);
-  const [saveName, setSaveName]         = useState('');
-  const [saveToast, setSaveToast]       = useState('');
-  const [saving, setSaving]             = useState(false);
-
-  useEffect(() => {
-    if (!saveToast) return;
-    const t = setTimeout(() => setSaveToast(''), 3000);
-    return () => clearTimeout(t);
-  }, [saveToast]);
-
-  const today = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const defaultSaveName = `Queue – ${today}`;
-
-  const handleSaveQueue = async () => {
-    if (!queue.length) return;
-    setSaving(true);
-    const name = saveName.trim() || defaultSaveName;
-    const id = await createPlaylist(name);
-    if (!id) { setSaveToast('Fehler beim Speichern'); setSaving(false); return; }
-    queue.forEach((track) => addToPlaylist(id, track));
-    setShowSaveForm(false);
-    setSaveName('');
-    setSaveToast(`✓ "${name}" in Library gespeichert`);
-    setSaving(false);
-  };
 
   // Convert library history → CuratedTrack for the Played tab (same data as Library > History)
   const playedHistory: CuratedTrack[] = library.history.map((lt) => ({
@@ -431,12 +401,12 @@ export function Queue({
           {queue.length > 0 && (
             <div className="flex items-center gap-2">
               <button
-                onClick={() => { setSaveName(defaultSaveName); setShowSaveForm((v) => !v); }}
-                title="Queue als Playlist speichern"
+                onClick={() => setAddToPlaylistTracks([...queue])}
+                title="Queue zu Playlist hinzufügen"
                 className="hover:opacity-70 transition-opacity"
                 style={{ color: '#9A9A9A' }}
               >
-                <BookmarkPlus size={15} />
+                <ListPlus size={15} />
               </button>
               <button
                 onClick={() => { useAppStore.getState().setActiveSource(null); useAppStore.getState().setActiveIndex(-1); useAppStore.getState().setIsPlaying(false); setQueue([]); }}
@@ -448,32 +418,6 @@ export function Queue({
               </button>
             </div>
           )}
-        </div>
-      )}
-
-      {/* ── Save-as-Playlist inline form ── */}
-      {showSaveForm && (
-        <div className="flex items-center gap-2 px-4 pb-2">
-          <input
-            autoFocus
-            value={saveName}
-            onChange={(e) => setSaveName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleSaveQueue(); if (e.key === 'Escape') setShowSaveForm(false); }}
-            placeholder={defaultSaveName}
-            className="flex-1 text-xs px-2.5 py-1.5 rounded-lg outline-none"
-            style={{ background: '#F0EFEC', border: '1.5px solid #DCDBD7', color: '#131313' }}
-          />
-          <button
-            onClick={handleSaveQueue}
-            disabled={saving}
-            className="text-xs px-3 py-1.5 rounded-lg font-semibold disabled:opacity-50"
-            style={{ background: '#FF4D3D', color: '#FFFFFF' }}
-          >
-            {saving ? '…' : 'Save'}
-          </button>
-          <button onClick={() => setShowSaveForm(false)} style={{ color: '#9A9A9A' }}>
-            <X size={14} />
-          </button>
         </div>
       )}
 
@@ -527,12 +471,12 @@ export function Queue({
           {!embeddedMode && (
             <>
               <button
-                onClick={() => { setSaveName(defaultSaveName); setShowSaveForm((v) => !v); }}
-                title="Als Playlist speichern"
+                onClick={() => setAddToPlaylistTracks([...queue])}
+                title="Queue zu Playlist hinzufügen"
                 className="hover:opacity-70 transition-opacity"
                 style={{ color: '#9A9A9A' }}
               >
-                <BookmarkPlus size={14} />
+                <ListPlus size={14} />
               </button>
               <button
                 onClick={() => {
@@ -700,16 +644,6 @@ export function Queue({
         {!embeddedMode && <div className="h-24" />}
         {embeddedMode && <div className="h-4" />}
       </div>
-
-      {/* ── Toast notification ── */}
-      {saveToast && (
-        <div
-          className="fixed bottom-24 left-4 right-4 z-50 py-2.5 px-4 rounded-xl text-sm font-semibold text-white text-center"
-          style={{ background: '#0E0E0E', maxWidth: 430, margin: '0 auto' }}
-        >
-          {saveToast}
-        </div>
-      )}
 
       <style>{`
         .no-scrollbar::-webkit-scrollbar { display: none; }

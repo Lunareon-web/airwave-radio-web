@@ -7,7 +7,8 @@ import { useState } from 'react';
 
 export function AddToPlaylistModal() {
   const {
-    addToPlaylistTrack, setAddToPlaylistTrack,
+    addToPlaylistTrack,  setAddToPlaylistTrack,
+    addToPlaylistTracks, setAddToPlaylistTracks,
     library, addToPlaylist, createPlaylist, setActiveScreen,
   } = useAppStore();
 
@@ -15,32 +16,61 @@ export function AddToPlaylistModal() {
   const [newName, setNewName] = useState('');
   const [added, setAdded] = useState<string | null>(null); // playlistId just added to
 
-  if (!addToPlaylistTrack) return null;
-  const track = addToPlaylistTrack;
+  // Multi-track mode (Queue → Playlist) takes priority over single-track mode
+  const isMulti = !!addToPlaylistTracks;
+  const isOpen  = isMulti || !!addToPlaylistTrack;
 
-  const handleAdd = (playlistId: string) => {
-    addToPlaylist(playlistId, track);
-    setAdded(playlistId);
-    setTimeout(() => {
-      setAdded(null);
-      setAddToPlaylistTrack(null);
-    }, 800);
+  const close = () => {
+    setAddToPlaylistTrack(null);
+    setAddToPlaylistTracks(null);
+    setAdded(null);
+    setNewName('');
   };
 
+  // ── Single-track add ──────────────────────────────────────────────────────
+  const handleAddSingle = (playlistId: string) => {
+    if (!addToPlaylistTrack) return;
+    addToPlaylist(playlistId, addToPlaylistTrack);
+    setAdded(playlistId);
+    setTimeout(close, 800);
+  };
+
+  // ── Multi-track add (entire queue) ────────────────────────────────────────
+  const handleAddMulti = (playlistId: string) => {
+    if (!addToPlaylistTracks) return;
+    addToPlaylistTracks.forEach((t) => addToPlaylist(playlistId, t));
+    setAdded(playlistId);
+    setTimeout(close, 900);
+  };
+
+  const handleAdd = isMulti ? handleAddMulti : handleAddSingle;
+
+  // ── Create new playlist (+ optionally add tracks right away) ─────────────
   const handleCreate = async () => {
     const name = newName.trim();
     if (!name) return;
     setCreating(true);
-    await createPlaylist(name);
+    const id = await createPlaylist(name);
+    if (id && isMulti && addToPlaylistTracks) {
+      addToPlaylistTracks.forEach((t) => addToPlaylist(id, t));
+    } else if (id && !isMulti && addToPlaylistTrack) {
+      addToPlaylist(id, addToPlaylistTrack);
+    }
     setCreating(false);
     setNewName('');
-    // auto-close after creation
-    setTimeout(() => setAddToPlaylistTrack(null), 400);
+    setTimeout(close, 400);
   };
+
+  // ── Subtitle ──────────────────────────────────────────────────────────────
+  const subtitle = isMulti
+    ? `${addToPlaylistTracks!.length} track${addToPlaylistTracks!.length !== 1 ? 's' : ''} from Queue`
+    : addToPlaylistTrack
+      ? `${addToPlaylistTrack.track} · ${addToPlaylistTrack.artist}`
+      : '';
 
   return (
     <AnimatePresence>
-      {addToPlaylistTrack && (
+      {isOpen && (
         <>
           <motion.div
             initial={{ opacity: 0 }}
@@ -48,7 +78,7 @@ export function AddToPlaylistModal() {
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[60]"
             style={{ background: 'rgba(0,0,0,0.5)' }}
-            onClick={() => setAddToPlaylistTrack(null)}
+            onClick={close}
           />
           <motion.div
             initial={{ y: '100%' }}
@@ -62,11 +92,9 @@ export function AddToPlaylistModal() {
             <div className="flex items-center justify-between mb-4">
               <div className="min-w-0 flex-1">
                 <h3 className="text-base font-bold" style={{ color: '#131313' }}>Add to Playlist</h3>
-                <p className="text-xs truncate mt-0.5" style={{ color: '#9A9A9A' }}>
-                  {track.track} · {track.artist}
-                </p>
+                <p className="text-xs truncate mt-0.5" style={{ color: '#9A9A9A' }}>{subtitle}</p>
               </div>
-              <button onClick={() => setAddToPlaylistTrack(null)} style={{ color: '#9A9A9A' }} className="ml-3 flex-shrink-0">
+              <button onClick={close} style={{ color: '#9A9A9A' }} className="ml-3 flex-shrink-0">
                 <X size={20} />
               </button>
             </div>
@@ -100,7 +128,7 @@ export function AddToPlaylistModal() {
                 <p className="text-sm" style={{ color: '#9A9A9A' }}>
                   Create a playlist above, or visit{' '}
                   <button
-                    onClick={() => { setAddToPlaylistTrack(null); setActiveScreen('library'); }}
+                    onClick={() => { close(); setActiveScreen('library'); }}
                     className="font-semibold underline"
                     style={{ color: '#FF4D3D' }}
                   >
@@ -112,16 +140,28 @@ export function AddToPlaylistModal() {
               <div className="space-y-2 max-h-56 overflow-y-auto">
                 {library.playlists.map((pl) => {
                   const isAdded = added === pl.id;
-                  const alreadyIn = pl.tracks.some((t) => t.id === `${track.artist}__${track.track}`.toLowerCase().replace(/\s+/g, '_'));
+
+                  // Single-track: check if this exact track is already in the playlist
+                  const alreadyIn = !isMulti && !!addToPlaylistTrack &&
+                    pl.tracks.some((t) => t.id === `${addToPlaylistTrack.artist}__${addToPlaylistTrack.track}`.toLowerCase().replace(/\s+/g, '_'));
+
+                  // Multi-track: show how many are already present
+                  const existingCount = isMulti
+                    ? addToPlaylistTracks!.filter((qt) =>
+                        pl.tracks.some((t) => t.id === `${qt.artist}__${qt.track}`.toLowerCase().replace(/\s+/g, '_'))
+                      ).length
+                    : 0;
+                  const newCount = isMulti ? addToPlaylistTracks!.length - existingCount : 0;
+
                   return (
                     <button
                       key={pl.id}
                       onClick={() => !alreadyIn && handleAdd(pl.id)}
-                      disabled={alreadyIn}
+                      disabled={alreadyIn || (isMulti && newCount === 0)}
                       className="w-full flex items-center gap-3 p-3 rounded-2xl text-left transition-all"
                       style={{
                         background: isAdded ? 'rgba(255,77,61,0.08)' : '#F0EFEC',
-                        opacity: alreadyIn ? 0.5 : 1,
+                        opacity: (alreadyIn || (isMulti && newCount === 0)) ? 0.5 : 1,
                       }}
                     >
                       <div
@@ -137,7 +177,8 @@ export function AddToPlaylistModal() {
                         <p className="text-sm font-semibold truncate" style={{ color: '#131313' }}>{pl.name}</p>
                         <p className="text-xs" style={{ color: '#9A9A9A' }}>
                           {pl.tracks.length} track{pl.tracks.length !== 1 ? 's' : ''}
-                          {alreadyIn ? ' · Already added' : ''}
+                          {isMulti && existingCount > 0 && ` · ${existingCount} already added`}
+                          {!isMulti && alreadyIn && ' · Already added'}
                         </p>
                       </div>
                       {isAdded && <Check size={16} color="#FF4D3D" />}
