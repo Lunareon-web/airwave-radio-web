@@ -88,12 +88,15 @@ export function NowPlaying({ desktopMode = false, onYTReady }: { desktopMode?: b
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     // Slider is always 0-100 (%). Convert to actual seconds when duration is known.
     const pct = parseFloat(e.target.value);
-    if (duration <= 0) return; // can't seek without a known duration
-    const t = (pct / 100) * duration;
+    // Read duration fresh from store — avoids stale closure when YT reports it late.
+    const dur = useAppStore.getState().duration;
+    if (dur <= 0) return; // can't seek without a known duration
+    const t = (pct / 100) * dur;
+    // syncSeek FIRST: activates seekBlockUntilRef so the stale pre-seek
+    // infoDelivery event YouTube fires immediately after seekTo is suppressed.
+    ytCommand.syncSeek?.(t);
     setCurrentTime(t);
     ytCommand.send?.('seekTo', [t, true]);
-    // Reset local timer baseline so it doesn't revert the slider back to pre-seek pos
-    ytCommand.syncSeek?.(t);
   };
 
   const handleStartRadio = () => {
@@ -261,8 +264,9 @@ export function NowPlaying({ desktopMode = false, onYTReady }: { desktopMode?: b
           <input
             type="range" min={0} max={100} value={progress}
             onChange={handleSeek}
+            onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
             className="w-full h-1 rounded-full appearance-none cursor-pointer"
-            style={seekStyleLight}
+            style={{ ...seekStyleLight, touchAction: 'none' }}
           />
           <div className="flex justify-between -mt-1">
             <span className="text-[10px]" style={{ color: '#9A9A9A' }}>{formatTime(currentTime)}</span>
@@ -349,8 +353,9 @@ export function NowPlaying({ desktopMode = false, onYTReady }: { desktopMode?: b
             <input
               type="range" min={0} max={100} value={progress}
               onChange={handleSeek}
+              onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
               className="w-full h-1 rounded-full appearance-none cursor-pointer"
-              style={seekStyleLight}
+              style={{ ...seekStyleLight, touchAction: 'none' }}
             />
             <div className="flex justify-between mt-0.5">
               <span className="text-[10px]" style={{ color: '#9A9A9A' }}>{formatTime(currentTime)}</span>
@@ -443,8 +448,9 @@ export function NowPlaying({ desktopMode = false, onYTReady }: { desktopMode?: b
             )}
             <input type="range" min={0} max={100} value={progress}
               onChange={handleSeek}
+              onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
               className="w-full h-1 rounded-full appearance-none cursor-pointer"
-              style={seekStyleLight} />
+              style={{ ...seekStyleLight, touchAction: 'none' }} />
             <div className="flex justify-between -mt-1">
               <span className="text-[10px]" style={{ color: '#9A9A9A' }}>{formatTime(currentTime)}</span>
               <span className="text-[10px]" style={{ color: '#9A9A9A' }}>{formatDuration(duration)}</span>
@@ -496,8 +502,9 @@ export function NowPlaying({ desktopMode = false, onYTReady }: { desktopMode?: b
             <div className="w-full mb-2.5">
               <input type="range" min={0} max={100} value={progress}
                 onChange={handleSeek}
+                onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
                 className="w-full h-1 rounded-full appearance-none cursor-pointer"
-                style={seekStyle} />
+                style={{ ...seekStyle, touchAction: 'none' }} />
               <div className="flex justify-between mt-1">
                 <span className="text-[10px]" style={{ color: '#6B6B6B' }}>{formatTime(currentTime)}</span>
                 <span className="text-[10px]" style={{ color: '#6B6B6B' }}>{formatDuration(duration)}</span>
