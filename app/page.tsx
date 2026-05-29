@@ -261,10 +261,13 @@ export default function HomePage() {
     }
     navigator.mediaSession.playbackState = store.isPlaying ? 'playing' : 'paused';
 
-    // KEY: clear any setPositionState the YouTube iframe called.
+    // KEY: clear any position state the YouTube iframe set.
     // Chrome shows only [⏸] + seek bar when position state is active;
-    // calling setPositionState() with no args resets it → restores [⏮][⏸][⏭].
-    try { navigator.mediaSession.setPositionState(); } catch { /* ignore — some environments throw */ }
+    // clearing it → restores compact 3-button [⏮][⏸][⏭] layout.
+    // Try null first (most explicit clear), fall back to no-arg form.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    try { (navigator.mediaSession as any).setPositionState(null); } catch { /* ignore */ }
+    try { navigator.mediaSession.setPositionState(); } catch { /* ignore */ }
   }, []);
 
   // Register immediately on mount (cold-start / session-restore)
@@ -278,6 +281,16 @@ export default function HomePage() {
     const timers = delays.map((ms) => setTimeout(assertMediaSession, ms));
     return () => timers.forEach(clearTimeout);
   }, [assertMediaSession, isPlaying, activeIndex, activeSource]);
+
+  // Continuous re-assertion while playing.
+  // YouTube's iframe calls setPositionState() every ~1 s indefinitely to keep
+  // the seek-bar position fresh. A 500 ms interval means we ALWAYS clear it
+  // within ≤500 ms — ensuring the 3-button layout dominates over time.
+  useEffect(() => {
+    if (!isPlaying) return;
+    const id = setInterval(assertMediaSession, 500);
+    return () => clearInterval(id);
+  }, [assertMediaSession, isPlaying]);
 
   // onYTReady: fired by YTPlayer when playerState=1 (video actually playing).
   // YouTube registers its own session RIGHT at this moment — re-asserting
