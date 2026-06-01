@@ -196,39 +196,22 @@ export default function HomePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndex, activeSource]);
 
-  // ── Keyboard shortcuts: Space / ← / → / media keys ─────────────────────
-  // Two complementary paths for hardware media keys (F8/F9/F10 and dedicated keys):
-  //   1. navigator.mediaSession action handlers (registered in assertMediaSession)
-  //      — fired by Chrome via the OS media session API when audio is playing.
-  //   2. keydown 'MediaTrackPrevious' / 'MediaPlayPause' / 'MediaTrackNext'
-  //      — Chrome also fires these as keydown events, giving a JS fallback that
-  //        works even before/after playback and regardless of audio-focus state.
+  // ── Keyboard shortcuts: Space / ← / → / MediaStop ───────────────────────
+  // Media play/pause/prev/next are handled EXCLUSIVELY by the Media Session action
+  // handlers registered in assertMediaSession (see below). Do NOT duplicate them
+  // here: Chrome fires BOTH keydown AND the Media Session action for the same
+  // key press, so a toggle in keydown would race with the action handler and
+  // revert the state — producing the "brief animation then stops" bug.
+  // Only MediaStop stays here because there is no standard Media Session 'stop' action.
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       const store = useAppStore.getState();
 
-      // ── Standard media keys (dedicated keys + Fn+F8/F9/F10 in media mode) ──
-      if (e.code === 'MediaTrackPrevious') {
-        e.preventDefault();
-        store.playPrev();
-        return;
-      }
-      if (e.code === 'MediaPlayPause') {
-        e.preventDefault();
-        startSilentAudio();
-        msAssert.fn?.();
-        store.setIsPlaying(!store.isPlaying);
-        return;
-      }
-      if (e.code === 'MediaTrackNext') {
-        e.preventDefault();
-        store.skipCurrent();
-        return;
-      }
       if (e.code === 'MediaStop') {
         e.preventDefault();
+        ytCommand.send?.('pauseVideo');
         store.setIsPlaying(false);
         return;
       }
@@ -273,8 +256,17 @@ export default function HomePage() {
     const store = useAppStore.getState();
     const track = store.getCurrentTrack();
 
-    navigator.mediaSession.setActionHandler('play',          () => useAppStore.getState().setIsPlaying(true));
-    navigator.mediaSession.setActionHandler('pause',         () => useAppStore.getState().setIsPlaying(false));
+    // Media Session action handlers are called by Chrome in a user-gesture context,
+    // so ytCommand.send() here is synchronous — audio.play() is allowed by autoplay policy.
+    // (In audio mode, ytCommand.send maps to audioElement.play()/pause() directly.)
+    navigator.mediaSession.setActionHandler('play', () => {
+      ytCommand.send?.('playVideo');                  // synchronous audio.play() ← key!
+      useAppStore.getState().setIsPlaying(true);
+    });
+    navigator.mediaSession.setActionHandler('pause', () => {
+      ytCommand.send?.('pauseVideo');
+      useAppStore.getState().setIsPlaying(false);
+    });
     navigator.mediaSession.setActionHandler('nexttrack',     () => useAppStore.getState().skipCurrent());
     navigator.mediaSession.setActionHandler('previoustrack', () => useAppStore.getState().playPrev());
     // seekto attaches to seek-bar drag without consuming a button slot.

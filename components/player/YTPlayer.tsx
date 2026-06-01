@@ -81,18 +81,25 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
         seekBlockUntilRef.current = Date.now() + 800;
       };
     } else {
-      // ── Audio mode: map seekTo → audio element currentTime ──
+      // ── Audio mode: map commands → audio element directly ──────────────
+      // Called synchronously from within Media Session action handlers (user-gesture
+      // context) so audio.play() is NOT blocked by the browser's autoplay policy.
       ytCommand.send = (func: string, args?: unknown[]) => {
-        if (func === 'seekTo' && args && args[0] !== undefined) {
+        if (func === 'playVideo') {
+          if (isAudioReadyRef.current && audioRef.current) {
+            audioRef.current.play().catch(console.error);
+          }
+          // If not ready yet, handleAudioCanPlay will start play when the element loads
+        } else if (func === 'pauseVideo') {
+          audioRef.current?.pause();
+        } else if (func === 'seekTo' && args && args[0] !== undefined) {
           const t = args[0] as number;
           if (isAudioReadyRef.current && audioRef.current) {
             audioRef.current.currentTime = t;
           } else {
-            // Queue the seek; applied once canplay fires
             pendingSeekRef.current = t;
           }
         }
-        // playVideo / pauseVideo are handled by the isPlaying effect below
       };
       ytCommand.syncSeek = (time: number) => {
         // No iframe seek-block needed — we control the element directly
