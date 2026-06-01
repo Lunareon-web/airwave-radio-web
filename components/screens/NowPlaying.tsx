@@ -15,6 +15,7 @@ import { Chip } from '@/components/ui/Chip';
 import { FreqBars } from '@/components/ui/FreqBars';
 import { YTPlayer, ytCommand } from '@/components/player/YTPlayer';
 import { startSilentAudio, msAssert } from '@/lib/silentAudio';
+import { museCommand } from '@/components/screens/Muse';
 import { Queue } from '@/components/screens/Queue';
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -59,7 +60,7 @@ export function NowPlaying({ desktopMode = false, onYTReady }: { desktopMode?: b
     getCurrentTrack, activeSource,
     likeTrack, unlikeTrack, dislikeTrack, undislikeTrack,
     library, settings, setShowSettings,
-    setCurrentPrompt, setActiveScreen,
+    setActiveScreen,
     isShuffled, setIsShuffled,
     volume, setVolume, isMuted, setIsMuted,
     resolveMessage,
@@ -102,8 +103,15 @@ export function NowPlaying({ desktopMode = false, onYTReady }: { desktopMode?: b
 
   const handleStartRadio = () => {
     if (!track) return;
-    setCurrentPrompt(`${track.artist} ${track.track} similar tracks radio`);
+    // Signal Muse to run "Analyze" instead of opening the "What's the vibe?" dialog.
+    // On desktop Muse is always mounted → analyze fires immediately.
+    // On mobile Muse mounts after setActiveScreen → picks up pendingAnalyze in its useEffect.
+    museCommand.pendingAnalyze = true;
     setActiveScreen('muse');
+    if (museCommand.analyze) {
+      museCommand.pendingAnalyze = false;
+      museCommand.analyze();
+    }
   };
 
 

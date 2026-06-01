@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Plus, Sparkles, Play, Pause, Loader2, ListMusic, ChevronDown, ChevronUp, ListPlus, BookmarkPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
@@ -83,7 +83,7 @@ function TrackCard({
           className="w-8 h-8 flex items-center justify-center transition-opacity hover:opacity-70"
           title="Play now"
         >
-          <Play size={15} color="#FF4D3D" fill="#FF4D3D" />
+          <Play size={15} color="#9A9A9A" fill="#9A9A9A" />
         </button>
         <button
           onClick={onAdd}
@@ -190,6 +190,18 @@ function MessageTrackList({
   );
 }
 
+/**
+ * Module-level ref so NowPlaying can trigger "Analyze" directly.
+ * Mirrors the ytCommand pattern — avoids prop-drilling through nav layers.
+ *  analyze:        set to analyzeTrack() once Muse mounts; null when unmounted.
+ *  pendingAnalyze: set by NowPlaying before navigating to Muse; Muse checks
+ *                  this on mount and fires analyze() if set.
+ */
+export const museCommand: {
+  analyze: (() => void) | null;
+  pendingAnalyze: boolean;
+} = { analyze: null, pendingAnalyze: false };
+
 export function Muse() {
   const {
     chatMessages, addChatMessage, clearChat,
@@ -246,21 +258,38 @@ export function Muse() {
   }, [currentPrompt]);
 
   // ── AI Advisor ────────────────────────────────────────────────────────────
-  const analyzeTrack = async () => {
-    if (!currentTrack || isAnalyzing) return;
-    setIsAnalyzing(true);
+  // Stable callback (reads live store state inside) so museCommand.analyze never
+  // becomes stale even when currentTrack / geminiKey change between renders.
+  const analyzeTrack = useCallback(async () => {
+    const store = useAppStore.getState();
+    const track = store.getCurrentTrack();
+    if (!track || store.isAnalyzing) return;
+    store.setIsAnalyzing(true);
     setAdvisorOpen(true);
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (settings.geminiKey) headers['X-Gemini-Key'] = settings.geminiKey;
+      if (store.settings.geminiKey) headers['X-Gemini-Key'] = store.settings.geminiKey;
       const res = await fetch('/api/advisor/analyze', {
         method: 'POST', headers,
-        body: JSON.stringify({ artist: currentTrack.artist, track: currentTrack.track }),
+        body: JSON.stringify({ artist: track.artist, track: track.track }),
       });
-      setAdvisorData(await res.json());
+      useAppStore.getState().setAdvisorData(await res.json());
     } catch (e) { console.error('Advisor error:', e); }
-    finally { setIsAnalyzing(false); }
-  };
+    finally { useAppStore.getState().setIsAnalyzing(false); }
+  // setAdvisorOpen is a stable useState setter → this callback never changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setAdvisorOpen]);
+
+  // Expose analyzeTrack via museCommand so NowPlaying can trigger it directly.
+  // On mount: check pendingAnalyze (set by NowPlaying before navigating here).
+  useEffect(() => {
+    museCommand.analyze = analyzeTrack;
+    if (museCommand.pendingAnalyze) {
+      museCommand.pendingAnalyze = false;
+      analyzeTrack();
+    }
+    return () => { museCommand.analyze = null; };
+  }, [analyzeTrack]);
 
   const handleBubbleClick = (bubble: MusicBubble) => {
     if (bubble.type === 'artist') {
