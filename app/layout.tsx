@@ -12,7 +12,7 @@ const plusJakarta = Plus_Jakarta_Sans({
 
 export const metadata: Metadata = {
   title: 'Airwave Radio',
-  description: 'AI-powered music radio',
+  description: 'AI-curated music radio',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
