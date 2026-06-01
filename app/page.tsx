@@ -196,12 +196,44 @@ export default function HomePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndex, activeSource]);
 
-  // ── Keyboard shortcuts: Space / ← / → ────────────────────────────────────
+  // ── Keyboard shortcuts: Space / ← / → / media keys ─────────────────────
+  // Two complementary paths for hardware media keys (F8/F9/F10 and dedicated keys):
+  //   1. navigator.mediaSession action handlers (registered in assertMediaSession)
+  //      — fired by Chrome via the OS media session API when audio is playing.
+  //   2. keydown 'MediaTrackPrevious' / 'MediaPlayPause' / 'MediaTrackNext'
+  //      — Chrome also fires these as keydown events, giving a JS fallback that
+  //        works even before/after playback and regardless of audio-focus state.
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       const store = useAppStore.getState();
+
+      // ── Standard media keys (dedicated keys + Fn+F8/F9/F10 in media mode) ──
+      if (e.code === 'MediaTrackPrevious') {
+        e.preventDefault();
+        store.playPrev();
+        return;
+      }
+      if (e.code === 'MediaPlayPause') {
+        e.preventDefault();
+        startSilentAudio();
+        msAssert.fn?.();
+        store.setIsPlaying(!store.isPlaying);
+        return;
+      }
+      if (e.code === 'MediaTrackNext') {
+        e.preventDefault();
+        store.skipCurrent();
+        return;
+      }
+      if (e.code === 'MediaStop') {
+        e.preventDefault();
+        store.setIsPlaying(false);
+        return;
+      }
+
+      // ── Standard app shortcuts ─────────────────────────────────────────────
       if (e.code === 'Space') {
         e.preventDefault();
         startSilentAudio(); // keyboard is a user gesture — secure audio focus
