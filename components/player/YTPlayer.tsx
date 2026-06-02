@@ -196,8 +196,14 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
 
   // ── Local timer ───────────────────────────────────────────────────────────
   // Interpolates currentTime every 500 ms when playing.
-  // Runs in both audio and video modes (hidden iframe still delivers infoDelivery
-  // events; this is the safety-net for when events are delayed on Android).
+  // Two safety layers on top of the handleMessage near-end detection:
+  //
+  //   a) Stale-event fallback — fires the 2-second pre-advance when the YT
+  //      iframe hasn't sent an infoDelivery event in ≥ 5 s (throttled/hidden)
+  //      but the extrapolated wall-clock position reaches dur − 2.
+  //
+  //   b) Ultimate safety-net — fires if estimated position is still 5+ s past
+  //      the known duration (belt-and-suspenders for extreme throttling).
   useEffect(() => {
     if (!isPlaying || !videoId) return;
     const startMs   = Date.now();
@@ -205,25 +211,39 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
 
     const id = setInterval(() => {
       const { time, ms } = lastYtRef.current;
+      const dur = useAppStore.getState().duration;
       let estimated: number;
 
       if (ms) {
         const staleSec = (Date.now() - ms) / 1000;
         estimated = time + staleSec;
         if (staleSec >= 1.2) setCurrentTime(estimated);
+
+        // (a) Stale-event fallback: events stopped flowing but extrapolated
+        //     position says we're at the 2-second pre-advance window.
+        if (staleSec >= 5 && dur > 0 && estimated >= dur - 2 && !nearEndFiredRef.current) {
+          nearEndFiredRef.current = true;
+          useAppStore.getState().playNext();
+        }
       } else {
+        // No events ever received — count from track start.
         const elapsed = (Date.now() - startMs) / 1000;
         estimated = startTime + elapsed;
         setCurrentTime(estimated);
+
+        if (dur > 0 && estimated >= dur - 2 && !nearEndFiredRef.current) {
+          nearEndFiredRef.current = true;
+          useAppStore.getState().playNext();
+        }
       }
 
-      const dur = useAppStore.getState().duration;
-
+      // (b) Ultimate safety-net: still past end despite (a) — advance anyway.
       if (dur > 0 && estimated > dur + 5 && !nearEndFiredRef.current) {
         nearEndFiredRef.current = true;
         useAppStore.getState().playNext();
       }
 
+      // Duration never received at all (iframe fully throttled for 12 min).
       if (dur === 0 && Date.now() - startMs > 12 * 60_000 && !nearEndFiredRef.current) {
         nearEndFiredRef.current = true;
         useAppStore.getState().playNext();
@@ -347,10 +367,20 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   // No track yet → nothing to render (effects still run)
   if (!videoId) return null;
 
-  // ── Audio mode: hidden iframe ─────────────────────────────────────────────
+  // ── Audio mode: visually hidden but rendered iframe ──────────────────────
+  //
+  // WHY NOT display:none?
+  // Chrome removes display:none iframes from the rendering pipeline entirely.
+  // The YouTube player's infoDelivery postMessage events slow to a trickle or
+  // stop, so the 2-second pre-advance and near-end detection stop working.
+  //
+  // FIX: render the iframe as a 1×1 transparent pixel anchored to the
+  // bottom-right corner.  Chrome keeps the element in the compositing tree
+  // and the player JS keeps firing events at full rate.
+  //
   // The Permissions-Policy: mediasession=(self) header (next.config.ts) blocks
-  // this cross-origin iframe from calling setActionHandler / new MediaMetadata,
-  // so our page-level Media Session registration is never overridden.
+  // this cross-origin iframe from overriding our Media Session handlers, so
+  // [⏮][⏸][⏭] still work on the lock screen.
   if (!isVideoMode) {
     return (
       <iframe
@@ -358,7 +388,17 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
         key={videoId}
         src={embedUrl!}
         allow="autoplay; encrypted-media"
-        style={{ display: 'none', width: 0, height: 0, position: 'absolute', border: 'none' }}
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          right: 0,
+          width: '1px',
+          height: '1px',
+          border: 'none',
+          opacity: 0,
+          pointerEvents: 'none',
+          zIndex: -999,
+        }}
         title="YouTube audio"
       />
     );
