@@ -279,9 +279,21 @@ export const useAppStore = create<AppState>()(
       if (current) {
         set((state) => ({ playedTracks: prependUnique(state.playedTracks, current) }));
       }
-      const nextIndex = s.isShuffled
-        ? Math.floor(Math.random() * tracks.length)
-        : s.activeIndex + 1;
+      const disliked = s.library.disliked;
+      let nextIndex: number;
+      if (s.isShuffled) {
+        // Try up to 20 random picks to find a non-disliked track
+        nextIndex = s.activeIndex + 1; // linear fallback
+        for (let attempt = 0; attempt < 20; attempt++) {
+          const candidate = Math.floor(Math.random() * tracks.length);
+          const t = tracks[candidate];
+          if (t && !disliked.includes(makeTrackId(t))) { nextIndex = candidate; break; }
+        }
+      } else {
+        nextIndex = s.activeIndex + 1;
+        // Walk forward past any disliked tracks
+        while (nextIndex < tracks.length && disliked.includes(makeTrackId(tracks[nextIndex]))) nextIndex++;
+      }
       if (nextIndex < tracks.length) {
         set({ activeIndex: nextIndex, isPlaying: true, currentTime: 0, duration: 0 });
         const track = tracks[nextIndex];
@@ -308,9 +320,19 @@ export const useAppStore = create<AppState>()(
       if (current) {
         set((state) => ({ skippedTracks: prependUnique(state.skippedTracks, current) }));
       }
-      const nextIndex = s.isShuffled
-        ? Math.floor(Math.random() * tracks.length)
-        : s.activeIndex + 1;
+      const disliked = s.library.disliked;
+      let nextIndex: number;
+      if (s.isShuffled) {
+        nextIndex = s.activeIndex + 1; // linear fallback
+        for (let attempt = 0; attempt < 20; attempt++) {
+          const candidate = Math.floor(Math.random() * tracks.length);
+          const t = tracks[candidate];
+          if (t && !disliked.includes(makeTrackId(t))) { nextIndex = candidate; break; }
+        }
+      } else {
+        nextIndex = s.activeIndex + 1;
+        while (nextIndex < tracks.length && disliked.includes(makeTrackId(tracks[nextIndex]))) nextIndex++;
+      }
       if (nextIndex < tracks.length) {
         set({ activeIndex: nextIndex, isPlaying: true, currentTime: 0, duration: 0 });
         const track = tracks[nextIndex];

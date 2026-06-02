@@ -317,6 +317,36 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
     }
   }, [setResolveMessage]);
 
+  // ── Background recovery: tab becomes visible again ────────────────────────
+  // When the OS window is not in focus, Chrome sets document.hidden=true and
+  // throttles/freezes background tabs. Native <audio> elements that are already
+  // playing are exempt, but a NEW element starting (after track advance) may
+  // have its play() blocked. When the tab becomes visible again we retry.
+  // In video mode we also re-send playVideo to the YT iframe which may have
+  // been frozen while the tab was hidden.
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) return;
+      const store = useAppStore.getState();
+      if (!store.isPlaying) return;
+      const track = store.getCurrentTrack();
+      if (!track?.videoId) return;
+
+      if (store.settings.playbackMode === 'video') {
+        // Re-assert play to the iframe — it may have been throttled/frozen
+        sendCommand('playVideo');
+      } else {
+        // Audio mode: if element is ready but paused, restart it
+        const audio = audioRef.current;
+        if (audio && isAudioReadyRef.current && audio.paused) {
+          audio.play().catch(console.error);
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [sendCommand]); // sendCommand is stable; fresh state is read from store inside handler
+
   // Local timer: interpolates currentTime every 500 ms when playing.
   // Two modes:
   //   a) YT events flowing  → interpolate from last known position (if stale ≥1.2s)

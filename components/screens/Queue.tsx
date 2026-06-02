@@ -10,6 +10,7 @@ import { useAppStore } from '@/lib/store';
 import { AlbumArt } from '@/components/ui/AlbumArt';
 import { Chip } from '@/components/ui/Chip';
 import type { CuratedTrack, QueueTab } from '@/lib/types';
+import { FeedbackButton } from '@/components/ui/FeedbackButton';
 
 const TABS: { id: QueueTab; label: string }[] = [
   { id: 'queue',   label: 'Queue' },
@@ -69,28 +70,32 @@ function TrackRow({
     >
       {/* Left action: play-now pill (history/skipped rows) */}
       {onPlayNow && !showGrip && (
-        <button
+        <FeedbackButton
           onClick={onPlayNow}
-          className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-all hover:opacity-80"
+          className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
           style={{ background: isActive && isPlaying ? '#FF4D3D' : '#E8E6E1' }}
           title="Play now"
+          tapScale={0.88}
+          rippleColor={isActive && isPlaying ? 'rgba(255,255,255,0.30)' : 'rgba(14,14,14,0.10)'}
         >
           {isActive && isPlaying
             ? <Pause size={12} color="white"   fill="white"   />
             : <Play  size={12} color="#6B6B6B" fill="#6B6B6B" />}
-        </button>
+        </FeedbackButton>
       )}
 
       {/* Left action: add-to-queue pill (muse suggestions without playNow) */}
       {onAddToQueue && !showGrip && !onPlayNow && (
-        <button
+        <FeedbackButton
           onClick={onAddToQueue}
-          className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-all hover:opacity-80"
+          className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
           style={{ background: '#E8E6E1', color: '#6B6B6B' }}
           title="Add to queue"
+          tapScale={0.88}
+          rippleColor="rgba(14,14,14,0.10)"
         >
           <Plus size={14} />
-        </button>
+        </FeedbackButton>
       )}
 
       <AlbumArt
@@ -137,24 +142,24 @@ function TrackRow({
       <div className="flex items-center gap-1 flex-shrink-0">
         {/* Secondary add-to-queue when we also have playNow */}
         {onAddToQueue && onPlayNow && (
-          <button
+          <FeedbackButton
             onClick={onAddToQueue}
             title="Add to queue"
             style={{ color: '#C2C0BB' }}
-            className="hover:opacity-80 transition-opacity"
+            rippleColor="rgba(14,14,14,0.08)"
           >
             <Plus size={15} />
-          </button>
+          </FeedbackButton>
         )}
         {onAddToPlaylist && (
-          <button
+          <FeedbackButton
             onClick={onAddToPlaylist}
             title="Add to playlist"
             style={{ color: '#C2C0BB' }}
-            className="hover:opacity-80 transition-opacity"
+            rippleColor="rgba(14,14,14,0.08)"
           >
             <ListMusic size={15} />
-          </button>
+          </FeedbackButton>
         )}
         {onStartRadio && (
           <button
@@ -226,6 +231,8 @@ function DraggableItem({
   const controls = useDragControls();
   const tid = makeTrackId(track);
 
+  const isDislikedTrack = dislikedSet.has(tid);
+
   return (
     <Reorder.Item
       key={`${track.artist}-${track.track}-${i}`}
@@ -233,7 +240,11 @@ function DraggableItem({
       dragListener={false}
       dragControls={controls}
     >
-      <div className="flex items-center gap-2">
+      <div
+        className="flex items-center gap-2"
+        style={isDislikedTrack ? { opacity: 0.4 } : undefined}
+        title={isDislikedTrack ? 'Disliked — will be skipped automatically' : undefined}
+      >
         {/* ── Drag handle — only this triggers drag ── */}
         <div
           onPointerDown={(e) => { e.preventDefault(); controls.start(e); }}

@@ -7,6 +7,7 @@ import { useAppStore } from '@/lib/store';
 import { AlbumArt } from '@/components/ui/AlbumArt';
 import { Chip } from '@/components/ui/Chip';
 import type { ChatMessage, CuratedTrack, MusicBubble } from '@/lib/types';
+import { FeedbackButton } from '@/components/ui/FeedbackButton';
 
 const QUICK_CHIPS = [
   'Chill Sunday morning',
@@ -85,20 +86,22 @@ function TrackCard({
         >
           <Play size={15} color="#9A9A9A" fill="#9A9A9A" />
         </button>
-        <button
+        <FeedbackButton
           onClick={onAdd}
-          className="w-8 h-8 flex items-center justify-center transition-opacity hover:opacity-70"
+          className="w-8 h-8 flex items-center justify-center"
           title="Add to queue"
+          rippleColor="rgba(255,255,255,0.18)"
         >
           <Plus size={15} color="#C2C0BB" />
-        </button>
-        <button
+        </FeedbackButton>
+        <FeedbackButton
           onClick={onAddToPlaylist}
-          className="w-8 h-8 flex items-center justify-center transition-opacity hover:opacity-70"
+          className="w-8 h-8 flex items-center justify-center"
           title="Add to playlist"
+          rippleColor="rgba(255,255,255,0.18)"
         >
           <ListMusic size={15} color="#C2C0BB" />
-        </button>
+        </FeedbackButton>
       </div>
     </div>
   );

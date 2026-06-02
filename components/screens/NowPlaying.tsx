@@ -6,7 +6,7 @@ import {
   Heart, ThumbsDown, Shuffle,
   Volume2, VolumeX, Volume1,
   MoreHorizontal, Settings, Sparkles,
-  Loader2, ListMusic,
+  Loader2, ListMusic, Headphones, Monitor,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '@/lib/store';
@@ -17,6 +17,7 @@ import { YTPlayer, ytCommand } from '@/components/player/YTPlayer';
 import { startSilentAudio, msAssert } from '@/lib/silentAudio';
 import { museCommand } from '@/components/screens/Muse';
 import { Queue } from '@/components/screens/Queue';
+import { FeedbackButton } from '@/components/ui/FeedbackButton';
 
 const SOURCE_LABEL: Record<string, string> = {
   discography: 'Discography',
@@ -65,7 +66,7 @@ export function NowPlaying({ desktopMode = false, onYTReady }: { desktopMode?: b
     volume, setVolume, isMuted, setIsMuted,
     resolveMessage,
     addToQueue, setCuratedTracks, setActiveSource, setActiveIndex,
-    setAddToPlaylistTrack,
+    setAddToPlaylistTrack, setSettings,
   } = useAppStore();
 
   const track = getCurrentTrack();
@@ -126,49 +127,94 @@ export function NowPlaying({ desktopMode = false, onYTReady }: { desktopMode?: b
     accentColor: '#FF4D3D',
   } as React.CSSProperties;
 
-  /* ── Shared transport buttons ── */
-  const TransportRow = ({ light = false }: { light?: boolean }) => (
-    <div className="flex items-center justify-between w-full px-1">
-      <button onClick={handleDislike} title="Dislike">
-        <ThumbsDown
-          size={20}
-          fill={isDisliked ? (light ? '#6B6B6B' : '#9A9A9A') : 'none'}
-          color={light ? '#6B6B6B' : '#9A9A9A'}
-        />
-      </button>
-      <button onClick={playPrev} style={{ color: light ? '#131313' : '#FFFFFF' }}>
-        <SkipBack size={26} />
+  /* ── Audio / Video mode toggle ── */
+  const ModeToggle = () => (
+    <div className="flex items-center gap-0.5 p-0.5 rounded-full" style={{ background: '#E8E6E1' }}>
+      <button
+        onClick={() => setSettings({ playbackMode: 'audio' })}
+        className="flex items-center gap-1 px-2 py-0.5 rounded-full transition-all"
+        style={{
+          background: settings.playbackMode === 'audio' ? '#131313' : 'transparent',
+          color:      settings.playbackMode === 'audio' ? '#FFFFFF' : '#9A9A9A',
+          fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+        }}
+        title="Switch to Audio mode"
+      >
+        <Headphones size={9} />Audio
       </button>
       <button
-        onClick={() => {
-          // startSilentAudio: secures audio focus for the main page so Chrome
-          // uses OUR Media Session notification (with prev/next) instead of the
-          // YouTube iframe's session (pause-only). Must run in a user-gesture.
-          startSilentAudio();
-          // msAssert: re-registers all handlers synchronously inside the gesture
-          // window — belt-and-suspenders alongside the useEffect re-assertion.
-          msAssert.fn?.();
-          setIsPlaying(!isPlaying);
+        onClick={() => setSettings({ playbackMode: 'video' })}
+        className="flex items-center gap-1 px-2 py-0.5 rounded-full transition-all"
+        style={{
+          background: settings.playbackMode === 'video' ? '#131313' : 'transparent',
+          color:      settings.playbackMode === 'video' ? '#FFFFFF' : '#9A9A9A',
+          fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
         }}
-        className="w-14 h-14 rounded-full flex items-center justify-center transition-transform active:scale-95"
-        style={{ background: '#FF4D3D', boxShadow: '0 4px 16px rgba(255,77,61,0.4)' }}
+        title="Switch to Video mode"
       >
-        {isPlaying
-          ? <Pause size={24} color="white" fill="white" />
-          : <Play  size={24} color="white" fill="white" />}
-      </button>
-      <button onClick={skipCurrent} style={{ color: light ? '#131313' : '#FFFFFF' }}>
-        <SkipForward size={26} />
-      </button>
-      <button onClick={handleLike} title="Like">
-        <Heart
-          size={20}
-          fill={isLiked ? '#FF4D3D' : 'none'}
-          color={isLiked ? '#FF4D3D' : (light ? '#6B6B6B' : '#9A9A9A')}
-        />
+        <Monitor size={9} />Video
       </button>
     </div>
   );
+
+  /* ── Shared transport buttons ── */
+  const TransportRow = ({ light = false }: { light?: boolean }) => {
+    const ripple = light ? 'rgba(14,14,14,0.08)' : 'rgba(255,255,255,0.20)';
+    return (
+      <div className="flex items-center justify-between w-full px-1">
+        <FeedbackButton onClick={handleDislike} title="Dislike" rippleColor={ripple}>
+          <ThumbsDown
+            size={20}
+            fill={isDisliked ? (light ? '#6B6B6B' : '#9A9A9A') : 'none'}
+            color={light ? '#6B6B6B' : '#9A9A9A'}
+          />
+        </FeedbackButton>
+        <FeedbackButton
+          onClick={playPrev}
+          style={{ color: light ? '#131313' : '#FFFFFF' }}
+          tapX={-4}
+          rippleColor={ripple}
+        >
+          <SkipBack size={26} />
+        </FeedbackButton>
+        <FeedbackButton
+          onClick={() => {
+            // startSilentAudio: secures audio focus for the main page so Chrome
+            // uses OUR Media Session notification (with prev/next) instead of the
+            // YouTube iframe's session (pause-only). Must run in a user-gesture.
+            startSilentAudio();
+            // msAssert: re-registers all handlers synchronously inside the gesture
+            // window — belt-and-suspenders alongside the useEffect re-assertion.
+            msAssert.fn?.();
+            setIsPlaying(!isPlaying);
+          }}
+          className="w-14 h-14 rounded-full flex items-center justify-center"
+          style={{ background: '#FF4D3D', boxShadow: '0 4px 16px rgba(255,77,61,0.4)' }}
+          tapScale={0.92}
+          rippleColor="rgba(255,255,255,0.30)"
+        >
+          {isPlaying
+            ? <Pause size={24} color="white" fill="white" />
+            : <Play  size={24} color="white" fill="white" />}
+        </FeedbackButton>
+        <FeedbackButton
+          onClick={skipCurrent}
+          style={{ color: light ? '#131313' : '#FFFFFF' }}
+          tapX={4}
+          rippleColor={ripple}
+        >
+          <SkipForward size={26} />
+        </FeedbackButton>
+        <FeedbackButton onClick={handleLike} title="Like" rippleColor={ripple}>
+          <Heart
+            size={20}
+            fill={isLiked ? '#FF4D3D' : 'none'}
+            color={isLiked ? '#FF4D3D' : (light ? '#6B6B6B' : '#9A9A9A')}
+          />
+        </FeedbackButton>
+      </div>
+    );
+  };
 
   const ShuffleVolumeRow = ({ light = false }: { light?: boolean }) => (
     <div className="flex items-center gap-2 w-full">
@@ -212,18 +258,21 @@ export function NowPlaying({ desktopMode = false, onYTReady }: { desktopMode?: b
       <div className="flex flex-col">
         {/* Compact status header */}
         <div
-          className="flex items-center justify-center gap-2 px-4 py-2"
+          className="flex items-center justify-between px-4 py-2"
           style={{ borderBottom: '1px solid #DCDBD7' }}
         >
-          <FreqBars active={isPlaying} />
-          <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#9A9A9A' }}>
-            Now Broadcasting
-          </span>
-          {activeSource && (
-            <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: '#C2C0BB' }}>
-              · {SOURCE_LABEL[activeSource]}
+          <div className="flex items-center gap-2">
+            <FreqBars active={isPlaying} />
+            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#9A9A9A' }}>
+              Now Broadcasting
             </span>
-          )}
+            {activeSource && (
+              <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: '#C2C0BB' }}>
+                · {SOURCE_LABEL[activeSource]}
+              </span>
+            )}
+          </div>
+          <ModeToggle />
         </div>
 
         {/* ── Video container ──
@@ -318,13 +367,16 @@ export function NowPlaying({ desktopMode = false, onYTReady }: { desktopMode?: b
               </span>
             )}
           </div>
-          <button
-            onClick={() => setShowSettings(true)}
-            className="w-7 h-7 rounded-full flex items-center justify-center transition-opacity hover:opacity-70"
-            style={{ background: '#E8E6E1', color: '#6B6B6B' }}
-          >
-            <Settings size={13} />
-          </button>
+          <div className="flex items-center gap-2">
+            <ModeToggle />
+            <button
+              onClick={() => setShowSettings(true)}
+              className="w-7 h-7 rounded-full flex items-center justify-center transition-opacity hover:opacity-70"
+              style={{ background: '#E8E6E1', color: '#6B6B6B' }}
+            >
+              <Settings size={13} />
+            </button>
+          </div>
         </div>
 
         {/* Compact controls */}
@@ -420,13 +472,16 @@ export function NowPlaying({ desktopMode = false, onYTReady }: { desktopMode?: b
               </span>
             )}
           </div>
-          <button
-            className="w-9 h-9 rounded-full flex items-center justify-center"
-            style={{ background: '#E8E6E1', color: '#6B6B6B' }}
-            onClick={() => setShowSettings(true)}
-          >
-            <Settings size={18} />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <ModeToggle />
+            <button
+              className="w-9 h-9 rounded-full flex items-center justify-center"
+              style={{ background: '#E8E6E1', color: '#6B6B6B' }}
+              onClick={() => setShowSettings(true)}
+            >
+              <Settings size={18} />
+            </button>
+          </div>
         </div>
 
         {/* ── Video mode: player — max 40 vh so queue is still visible below ── */}

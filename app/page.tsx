@@ -53,6 +53,11 @@ export default function HomePage() {
   } = useAppStore();
 
   const sessionSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Dedup ref: prevents the race where Chrome fires BOTH a keydown event AND a
+  // Media Session action for the same media-key press. For play/pause the old
+  // double-fire caused a toggle revert; for skip/prev it would skip 2 tracks.
+  // Both paths stamp the same timestamp → whichever fires second is a no-op.
+  const mediaSkipTimeRef = useRef({ next: 0, prev: 0 });
 
   // ── Load library, settings, playlists + restore session on mount ─────────
   useEffect(() => {
@@ -216,6 +221,26 @@ export default function HomePage() {
         return;
       }
 
+      // ── Media track keys — deduplicated against the MS action handler ──────
+      // Chrome fires BOTH keydown AND the Media Session action for the same key.
+      // The timestamp guard ensures only the first arrival (within 400 ms) acts.
+      if (e.code === 'MediaTrackNext') {
+        e.preventDefault();
+        const now = Date.now();
+        if (now - mediaSkipTimeRef.current.next < 400) return;
+        mediaSkipTimeRef.current.next = now;
+        store.skipCurrent();
+        return;
+      }
+      if (e.code === 'MediaTrackPrevious') {
+        e.preventDefault();
+        const now = Date.now();
+        if (now - mediaSkipTimeRef.current.prev < 400) return;
+        mediaSkipTimeRef.current.prev = now;
+        store.playPrev();
+        return;
+      }
+
       // ── Standard app shortcuts ─────────────────────────────────────────────
       if (e.code === 'Space') {
         e.preventDefault();
@@ -267,8 +292,18 @@ export default function HomePage() {
       ytCommand.send?.('pauseVideo');
       useAppStore.getState().setIsPlaying(false);
     });
-    navigator.mediaSession.setActionHandler('nexttrack',     () => useAppStore.getState().skipCurrent());
-    navigator.mediaSession.setActionHandler('previoustrack', () => useAppStore.getState().playPrev());
+    navigator.mediaSession.setActionHandler('nexttrack', () => {
+      const now = Date.now();
+      if (now - mediaSkipTimeRef.current.next < 400) return;
+      mediaSkipTimeRef.current.next = now;
+      useAppStore.getState().skipCurrent();
+    });
+    navigator.mediaSession.setActionHandler('previoustrack', () => {
+      const now = Date.now();
+      if (now - mediaSkipTimeRef.current.prev < 400) return;
+      mediaSkipTimeRef.current.prev = now;
+      useAppStore.getState().playPrev();
+    });
     // seekto attaches to seek-bar drag without consuming a button slot.
     // seekforward / seekbackward are NOT registered — they steal the [⏮][⏭] slots.
     navigator.mediaSession.setActionHandler('seekto', (details) => {

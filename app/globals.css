@@ -96,3 +96,17 @@ button, a {
 button:active {
   transform: scale(0.97);
 }
+
+/* ── FeedbackButton ripple ── */
+@keyframes btn-ripple {
+  from { transform: scale(0); opacity: 0.8; }
+  to   { transform: scale(1); opacity: 0; }
+}
+.btn-ripple {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: btn-ripple 0.70s ease-out forwards;
+}
+/* Let Framer Motion own the transform; prevent global button:active fighting it */
+.feedback-btn:active { transform: none; }
