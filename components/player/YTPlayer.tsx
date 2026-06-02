@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { useAppStore } from '@/lib/store';
 
 // Module-level ref so NowPlaying can seek without prop drilling
@@ -18,6 +18,24 @@ interface YTPlayerProps {
   fillContainer?: boolean;
 }
 
+/**
+ * Both audio mode and video mode use the YT iframe.
+ *
+ * The native <audio> approach was designed to let us own the Media Session so
+ * Chrome Android shows [⏮][⏸][⏭] on the lock screen.  That approach relied on
+ * Piped / Invidious proxies, which have completely shut down, and on server-side
+ * URL extraction via ytdl-core / InnerTube, which Google now blocks for all cloud
+ * provider IPs via the PO Token requirement.
+ *
+ * The same Media Session goal is now achieved via the
+ *   Permissions-Policy: mediasession=(self)
+ * header set in next.config.ts.  This blocks the cross-origin YouTube iframe from
+ * calling setActionHandler / setting MediaMetadata, so our page-level registrations
+ * in assertMediaSession (page.tsx) are never overridden.
+ *
+ * Audio mode renders the iframe hidden (display:none) — identical playback to
+ * video mode but without the visible video element.
+ */
 export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const ytReadyRef = useRef(false);
@@ -31,21 +49,6 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   // pre-seek position that YouTube sends before processing seekTo doesn't snap the slider back.
   const seekBlockUntilRef = useRef(0);
 
-  // ── Native audio mode (Piped/Invidious proxy) ──────────────────────────────
-  // Used when settings.playbackMode === 'audio'.
-  // A native <audio> element (not a YouTube iframe) makes the page the audio
-  // owner, so Chrome Android's lock-screen notification uses OUR Media Session
-  // (with [⏮][⏸][⏭]) and hardware media keys work on Windows/Bluetooth.
-  const audioRef           = useRef<HTMLAudioElement>(null);
-  const [audioUrl, setAudioUrl]   = useState<string | null>(null);
-  // Incrementing this triggers a fresh audio-URL fetch (for retries)
-  const [audioFetchTrigger, setAudioFetchTrigger] = useState(0);
-  // How many URL fetches have been attempted for the current track (0-2)
-  const audioFetchRetryRef = useRef(0);
-  // Seek target queued before the audio element was ready; applied on canplay
-  const pendingSeekRef     = useRef<number | null>(null);
-  // True once the audio element fires canplay (safe to seek / call play())
-  const isAudioReadyRef    = useRef(false);
   const {
     activeSource, activeIndex, isPlaying, volume, isMuted,
     setIsPlaying, setCurrentTime, setDuration, playNext,
@@ -57,8 +60,11 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   const videoId = currentTrack?.videoId;
   const isVideoMode = settings.playbackMode === 'video';
 
+  // controls=1 in video mode (shows YT UI); 0 in audio mode (hidden iframe, no UI needed).
   const embedUrl = videoId
-    ? `https://www.youtube.com/embed/${videoId}?enablejsapi=1&autoplay=1&controls=${isVideoMode ? 1 : 0}&rel=0&modestbranding=1&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`
+    ? `https://www.youtube.com/embed/${videoId}?enablejsapi=1&autoplay=1` +
+      `&controls=${isVideoMode ? 1 : 0}&rel=0&modestbranding=1` +
+      `&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`
     : null;
 
   // Send commands to iframe
@@ -70,44 +76,17 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
     );
   }, []);
 
-  // Register for external use (seek + sync from NowPlaying / Media Session)
+  // Register for external use (seek + sync from NowPlaying / Media Session).
+  // Both modes use the iframe, so both paths call sendCommand.
   useEffect(() => {
-    if (isVideoMode) {
-      // ── Video mode: forward commands to the YT iframe ──
-      ytCommand.send = sendCommand;
-      ytCommand.syncSeek = (time: number) => {
-        lastYtRef.current = { time, ms: Date.now() };
-        // Block stale pre-seek infoDelivery events for 800 ms
-        seekBlockUntilRef.current = Date.now() + 800;
-      };
-    } else {
-      // ── Audio mode: map commands → audio element directly ──────────────
-      // Called synchronously from within Media Session action handlers (user-gesture
-      // context) so audio.play() is NOT blocked by the browser's autoplay policy.
-      ytCommand.send = (func: string, args?: unknown[]) => {
-        if (func === 'playVideo') {
-          if (isAudioReadyRef.current && audioRef.current) {
-            audioRef.current.play().catch(console.error);
-          }
-          // If not ready yet, handleAudioCanPlay will start play when the element loads
-        } else if (func === 'pauseVideo') {
-          audioRef.current?.pause();
-        } else if (func === 'seekTo' && args && args[0] !== undefined) {
-          const t = args[0] as number;
-          if (isAudioReadyRef.current && audioRef.current) {
-            audioRef.current.currentTime = t;
-          } else {
-            pendingSeekRef.current = t;
-          }
-        }
-      };
-      ytCommand.syncSeek = (time: number) => {
-        // No iframe seek-block needed — we control the element directly
-        lastYtRef.current = { time, ms: Date.now() };
-      };
-    }
+    ytCommand.send = sendCommand;
+    ytCommand.syncSeek = (time: number) => {
+      lastYtRef.current = { time, ms: Date.now() };
+      // Block stale pre-seek infoDelivery events for 800 ms
+      seekBlockUntilRef.current = Date.now() + 800;
+    };
     return () => { ytCommand.send = null; ytCommand.syncSeek = null; };
-  }, [isVideoMode, sendCommand]);
+  }, [sendCommand]);
 
   // Listen for messages from the YT iframe.
   // NOTE: We check event.origin (not event.source) because on Android Chrome
@@ -118,7 +97,7 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
       event.origin !== 'https://www.youtube.com' &&
       event.origin !== 'https://www.youtube-nocookie.com'
     ) return;
-    if (!iframeRef.current) return; // iframe not mounted
+    if (!iframeRef.current) return;
     if (!event.data || typeof event.data !== 'string') return;
     let data: { event?: string; info?: Record<string, unknown> };
     try { data = JSON.parse(event.data); } catch { return; }
@@ -126,11 +105,7 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
     if (data.event === 'initialDelivery' || data.event === 'infoDelivery') {
       const info = data.info || {};
       if (typeof info.currentTime === 'number') {
-        // Skip stale pre-seek updates: YouTube sends the old position ~0–300 ms
-        // after a seekTo command before it processes the seek; honour the block
-        // window set by syncSeek() to prevent the slider snapping back.
         if (Date.now() < seekBlockUntilRef.current) {
-          // Still update the baseline time so interpolation stays correct
           lastYtRef.current = { time: info.currentTime as number, ms: Date.now() };
         } else {
           const ct = info.currentTime as number;
@@ -139,8 +114,6 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
         }
       }
 
-      // Duration: prefer info.duration (number), fall back to videoData.lengthSeconds (string)
-      // Some YT embed versions / topic channels send duration only via videoData.
       const rawDur  = info.duration;
       const vidData = info.videoData as Record<string, unknown> | undefined;
       const parsedDur = typeof rawDur === 'number'
@@ -161,13 +134,11 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
           ytReadyRef.current = true;
           setIsPlaying(true);
           if (onReady) onReady();
-          // 2-second pre-advance: start next track before the current one ends
           if (dur > 0 && dur - ct <= 2 && !nearEndFiredRef.current) {
             nearEndFiredRef.current = true;
             playNext();
           }
         } else if (state === 2) {
-          // YT sometimes fires pause ~1s before end — treat as ended
           if (dur > 0 && dur - ct <= 2) {
             if (!nearEndFiredRef.current) {
               nearEndFiredRef.current = true;
@@ -182,7 +153,6 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
       }
     }
 
-    // onStateChange: older/simpler YT event format
     if (data.event === 'onStateChange') {
       const state = typeof data.info === 'number' ? (data.info as number) : -1;
       if (state === 1) {
@@ -195,11 +165,8 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
       }
     }
 
-    // onError: video unavailable (100), embedding disabled (101 / 150), etc.
-    // Skip to next track instead of silently freezing.
     if (data.event === 'onError') {
-      const code = data.info;
-      console.warn(`[YT] onError code=${code} — skipping track`);
+      console.warn(`[YT] onError code=${data.info} — skipping track`);
       if (!nearEndFiredRef.current) {
         nearEndFiredRef.current = true;
         setTimeout(() => useAppStore.getState().playNext(), 800);
@@ -212,152 +179,27 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
     return () => window.removeEventListener('message', handleMessage);
   }, [handleMessage]);
 
-  // ── Audio mode: fetch playable URL from Piped/Invidious proxy ─────────────
-  // Re-runs when videoId changes (new track) or audioFetchTrigger increments (retry).
-  useEffect(() => {
-    if (isVideoMode || !videoId) return;
-    isAudioReadyRef.current = false;
-    setAudioUrl(null);
-
-    const params = new URLSearchParams({ videoId });
-    if (audioFetchRetryRef.current > 0) params.set('_retry', String(audioFetchRetryRef.current));
-
-    let cancelled = false;
-    fetch(`/api/youtube/audio?${params}`)
-      .then(r => r.json() as Promise<{ url?: string; mimeType?: string; duration?: number; error?: string }>)
-      .then(data => {
-        if (cancelled) return;
-        if (!data.url) throw new Error(data.error || 'no url');
-        setAudioUrl(data.url);
-        if (typeof data.duration === 'number' && data.duration > 0) setDuration(data.duration);
-      })
-      .catch(err => {
-        if (cancelled) return;
-        console.error('[audio] fetch error:', err);
-        if (audioFetchRetryRef.current < 2) {
-          audioFetchRetryRef.current += 1;
-          setAudioFetchTrigger(v => v + 1);
-        } else {
-          setResolveMessage('Audio unavailable — skipping…');
-          setTimeout(() => {
-            if (!cancelled && !nearEndFiredRef.current) {
-              nearEndFiredRef.current = true;
-              useAppStore.getState().playNext();
-            }
-          }, 1500);
-        }
-      });
-
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videoId, isVideoMode, audioFetchTrigger]);
-
-  // ── Audio mode: event handlers ─────────────────────────────────────────────
-
-  const handleAudioCanPlay = useCallback(() => {
-    isAudioReadyRef.current = true;
-    // Apply any seek queued before the element was ready
-    if (pendingSeekRef.current !== null && audioRef.current) {
-      audioRef.current.currentTime = pendingSeekRef.current;
-      pendingSeekRef.current = null;
-    }
-    // Start playing if the store says we should be
-    if (useAppStore.getState().isPlaying && audioRef.current) {
-      audioRef.current.play().catch(console.error);
-    }
-  }, []);
-
-  // Only sync false if the store still thinks we're playing (external pause/interrupt).
-  // Ignore near-end: timeupdate already calls playNext() and the element will fire ended.
-  const handleAudioPause = useCallback(() => {
-    const store = useAppStore.getState();
-    if (store.duration > 0 && store.duration - store.currentTime <= 2) return;
-    if (store.isPlaying) setIsPlaying(false);
-  }, [setIsPlaying]);
-
-  const handleAudioTimeUpdate = useCallback(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const ct = audio.currentTime;
-    lastYtRef.current = { time: ct, ms: Date.now() };
-    setCurrentTime(ct);
-    // 2-second pre-advance (same as video mode)
-    const dur = audio.duration;
-    if (dur > 0 && dur - ct <= 2 && !nearEndFiredRef.current) {
-      nearEndFiredRef.current = true;
-      playNext();
-    }
-  }, [setCurrentTime, playNext]);
-
-  const handleAudioDuration = useCallback(() => {
-    const audio = audioRef.current;
-    if (audio && isFinite(audio.duration) && audio.duration > 0) {
-      setDuration(audio.duration);
-    }
-  }, [setDuration]);
-
-  const handleAudioEnded = useCallback(() => {
-    if (!nearEndFiredRef.current) {
-      nearEndFiredRef.current = true;
-      playNext();
-    }
-  }, [playNext]);
-
-  const handleAudioError = useCallback(() => {
-    console.warn('[audio] element error code', audioRef.current?.error?.code);
-    if (audioFetchRetryRef.current < 2) {
-      audioFetchRetryRef.current += 1;
-      setAudioFetchTrigger(v => v + 1);
-    } else {
-      setResolveMessage('Audio error — skipping…');
-      if (!nearEndFiredRef.current) {
-        nearEndFiredRef.current = true;
-        setTimeout(() => useAppStore.getState().playNext(), 1500);
-      }
-    }
-  }, [setResolveMessage]);
-
-  // ── Background recovery: tab becomes visible again ────────────────────────
-  // When the OS window is not in focus, Chrome sets document.hidden=true and
-  // throttles/freezes background tabs. Native <audio> elements that are already
-  // playing are exempt, but a NEW element starting (after track advance) may
-  // have its play() blocked. When the tab becomes visible again we retry.
-  // In video mode we also re-send playVideo to the YT iframe which may have
-  // been frozen while the tab was hidden.
+  // ── Background recovery ────────────────────────────────────────────────────
+  // When the OS window is not in focus Chrome sets document.hidden=true and
+  // throttles / freezes the background tab including our iframe.  Re-send
+  // playVideo when the tab becomes visible again.
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden) return;
       const store = useAppStore.getState();
-      if (!store.isPlaying) return;
-      const track = store.getCurrentTrack();
-      if (!track?.videoId) return;
-
-      if (store.settings.playbackMode === 'video') {
-        // Re-assert play to the iframe — it may have been throttled/frozen
-        sendCommand('playVideo');
-      } else {
-        // Audio mode: if element is ready but paused, restart it
-        const audio = audioRef.current;
-        if (audio && isAudioReadyRef.current && audio.paused) {
-          audio.play().catch(console.error);
-        }
-      }
+      if (!store.isPlaying || !store.getCurrentTrack()?.videoId) return;
+      sendCommand('playVideo');
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [sendCommand]); // sendCommand is stable; fresh state is read from store inside handler
+  }, [sendCommand]);
 
-  // Local timer: interpolates currentTime every 500 ms when playing.
-  // Two modes:
-  //   a) YT events flowing  → interpolate from last known position (if stale ≥1.2s)
-  //   b) No YT events yet   → count up from store's currentTime at play-start
-  // This ensures the progress bar is NEVER frozen even on Android where
-  // postMessage events from hidden iframes may be delayed or absent.
-  // Also includes a safety-net auto-advance for when YT state=0 (ended) is
-  // never received (rare on Android with aggressive iframe throttling).
+  // ── Local timer ───────────────────────────────────────────────────────────
+  // Interpolates currentTime every 500 ms when playing.
+  // Runs in both audio and video modes (hidden iframe still delivers infoDelivery
+  // events; this is the safety-net for when events are delayed on Android).
   useEffect(() => {
-    // In audio mode the <audio> element fires timeupdate itself; no timer needed.
-    if (!isPlaying || !videoId || !isVideoMode) return;
+    if (!isPlaying || !videoId) return;
     const startMs   = Date.now();
     const startTime = useAppStore.getState().currentTime;
 
@@ -377,59 +219,35 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
 
       const dur = useAppStore.getState().duration;
 
-      // Safety-net 1: 5+ s past the known duration (YT state=0 never arrived)
       if (dur > 0 && estimated > dur + 5 && !nearEndFiredRef.current) {
         nearEndFiredRef.current = true;
         useAppStore.getState().playNext();
       }
 
-      // Safety-net 2: duration never received at all (Android iframe throttling).
-      // After 12 min of playing without a known end, advance to the next track.
-      // Keeps the radio moving even when postMessage events are fully blocked.
       if (dur === 0 && Date.now() - startMs > 12 * 60_000 && !nearEndFiredRef.current) {
         nearEndFiredRef.current = true;
         useAppStore.getState().playNext();
       }
     }, 500);
     return () => clearInterval(id);
-  }, [isPlaying, videoId, isVideoMode, setCurrentTime]);
+  }, [isPlaying, videoId, setCurrentTime]);
 
-  // Play/pause — video mode: forward to iframe
-  useEffect(() => {
-    if (!videoId || !isVideoMode) return;
-    if (isPlaying) sendCommand('playVideo');
-    else sendCommand('pauseVideo');
-  }, [isPlaying, videoId, isVideoMode, sendCommand]);
-
-  // Play/pause — audio mode: control the <audio> element
-  // isAudioReadyRef is a ref (not state), so canplay handler calls play() directly.
-  // This effect handles play/pause changes AFTER the element is already ready.
-  useEffect(() => {
-    if (!videoId || isVideoMode) return;
-    const audio = audioRef.current;
-    if (!audio || !isAudioReadyRef.current) return;
-    if (isPlaying) audio.play().catch(console.error);
-    else audio.pause();
-  // audioUrl in deps ensures this re-checks once the element is mounted
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPlaying, videoId, isVideoMode, audioUrl]);
-
-  // Volume
+  // ── Play / Pause ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!videoId) return;
-    if (isVideoMode) {
-      const vol = isMuted ? 0 : Math.round(volume * 100);
-      if (isMuted) sendCommand('mute');
-      else { sendCommand('unMute'); sendCommand('setVolume', [vol]); }
-    } else {
-      const audio = audioRef.current;
-      if (!audio) return;
-      audio.volume = isMuted ? 0 : volume;
-      audio.muted  = isMuted;
-    }
-  }, [volume, isMuted, videoId, isVideoMode, sendCommand]);
+    if (isPlaying) sendCommand('playVideo');
+    else sendCommand('pauseVideo');
+  }, [isPlaying, videoId, sendCommand]);
 
-  // Auto-resolve video IDs for current + next 5 tracks
+  // ── Volume ────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!videoId) return;
+    if (isMuted) sendCommand('mute');
+    else { sendCommand('unMute'); sendCommand('setVolume', [Math.round(volume * 100)]); }
+  }, [volume, isMuted, videoId, sendCommand]);
+
+  // ── Auto-resolve video IDs ────────────────────────────────────────────────
+  // Fetch a YouTube videoId for current + next track so they're ready to play.
   useEffect(() => {
     if (!activeSource || activeIndex < 0) return;
     const tracks = getSourceTracks(activeSource);
@@ -438,8 +256,6 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
     for (let i = activeIndex; i < Math.min(activeIndex + 2, tracks.length); i++) {
       const track = tracks[i];
       if (!track) continue;
-      // For the current (active) track: also retry 'failed' status so a quota
-      // error on a previous attempt doesn't permanently block playback.
       const isActive = i === activeIndex;
       if (isActive ? track.status === 'searching' || track.status === 'ready' : track.status !== 'idle') continue;
       updateTrackInSource(activeSource, i, { status: 'searching' });
@@ -453,7 +269,7 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
         .then(async (r) => ({ httpStatus: r.status, data: await r.json() as Record<string, unknown> }))
         .then(({ httpStatus, data }) => {
           if (data.videoId) {
-            consecutive429Ref.current = 0; // reset on success
+            consecutive429Ref.current = 0;
             updateTrackInSource(activeSource, i, {
               status: 'ready',
               videoId: data.videoId as string,
@@ -462,8 +278,6 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
             });
             if (i === activeIndex) {
               setResolveMessage(`▶ ${(data.title as string) || track.track}`);
-              // Pre-populate duration so the progress bar works even before
-              // infoDelivery events arrive from the iframe (unreliable on Android).
               const dur = data.duration as number | undefined;
               if (typeof dur === 'number' && dur > 0) setDuration(dur);
             }
@@ -472,11 +286,9 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
             updateTrackInSource(activeSource, i, { status: 'failed' });
             if (i === activeIndex) {
               if (consecutive429Ref.current >= 5) {
-                // 5 consecutive 429s — truly exhausted, stop the loop
                 setResolveMessage('⚠ YouTube-Kontingent erschöpft — bitte API-Key prüfen');
               } else {
-                // Try the next track — it might be cached or resolved via Invidious
-                setResolveMessage(`⚠ Quota erschöpft — überspringe Track…`);
+                setResolveMessage('⚠ Quota erschöpft — überspringe Track…');
                 setTimeout(() => {
                   if (useAppStore.getState().activeIndex === i) playNext();
                 }, 2500);
@@ -496,8 +308,6 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
           updateTrackInSource(activeSource, i, { status: 'failed' });
           if (i === activeIndex) {
             setResolveMessage('Search error — skipping…');
-            // Network error or Vercel timeout — skip after a short pause,
-            // just like the "not found" path (otherwise the track hangs forever).
             setTimeout(() => {
               if (useAppStore.getState().activeIndex === i) playNext();
             }, 1800);
@@ -507,104 +317,79 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSource, activeIndex]);
 
-  // Per-track init: reset state for the new track; mode-aware setup.
+  // ── Per-track init ────────────────────────────────────────────────────────
+  // Same YT iframe handshake for both audio and video modes.
   useEffect(() => {
     if (!videoId) return;
-    // Common resets
     lastYtRef.current       = { time: 0, ms: 0 };
     nearEndFiredRef.current = false;
+    ytReadyRef.current      = false;
 
-    if (isVideoMode) {
-      // ── Video mode: YT iframe handshake ─────────────────────────────────
-      ytReadyRef.current = false;
+    const sendListening = () =>
+      iframeRef.current?.contentWindow?.postMessage(
+        JSON.stringify({ event: 'listening', id: 1 }), '*'
+      );
 
-      const sendListening = () => {
-        // The YouTube iframe starts sending infoDelivery events only after it
-        // receives the "listening" handshake from the host page.
-        // Without this, events may never arrive on some Android devices.
-        iframeRef.current?.contentWindow?.postMessage(
-          JSON.stringify({ event: 'listening', id: 1 }), '*'
-        );
-      };
-
-      const t1 = setTimeout(() => {
-        sendCommand('playVideo');
-        sendCommand('setVolume', [isMuted ? 0 : Math.round(volume * 100)]);
-        sendListening();
-      }, 600);
-      const t2 = setTimeout(() => {
-        if (!ytReadyRef.current) {
-          sendCommand('playVideo');
-          sendListening();
-        }
-      }, 2500);
-      return () => { clearTimeout(t1); clearTimeout(t2); };
-
-    } else {
-      // ── Audio mode: reset audio refs so stale state doesn't bleed ───────
-      isAudioReadyRef.current  = false;
-      pendingSeekRef.current   = null;
-      audioFetchRetryRef.current = 0;
-      setAudioUrl(null);
-      // audioFetchTrigger state reset so retry count starts from 0 for new track
-      setAudioFetchTrigger(0);
-    }
+    // 600 ms: iframe has normally loaded by now; send play + listening handshake.
+    // 2500 ms: retry if ytReadyRef wasn't set (slow connection / throttled).
+    const t1 = setTimeout(() => {
+      sendCommand('playVideo');
+      sendCommand('setVolume', [isMuted ? 0 : Math.round(volume * 100)]);
+      sendListening();
+    }, 600);
+    const t2 = setTimeout(() => {
+      if (!ytReadyRef.current) { sendCommand('playVideo'); sendListening(); }
+    }, 2500);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videoId, isVideoMode]);
+  }, [videoId]);
 
   // No track yet → nothing to render (effects still run)
   if (!videoId) return null;
 
-  if (isVideoMode) {
-    // fillContainer: just the bare iframe — parent controls size/shape
-    if (fillContainer) {
-      return (
-        <iframe
-          ref={iframeRef}
-          key={videoId}
-          src={embedUrl!}
-          allow="autoplay; encrypted-media"
-          allowFullScreen
-          className="w-full h-full block"
-          style={{ border: 'none' }}
-          title="YouTube player"
-        />
-      );
-    }
+  // ── Audio mode: hidden iframe ─────────────────────────────────────────────
+  // The Permissions-Policy: mediasession=(self) header (next.config.ts) blocks
+  // this cross-origin iframe from calling setActionHandler / new MediaMetadata,
+  // so our page-level Media Session registration is never overridden.
+  if (!isVideoMode) {
     return (
-      <div className="w-full aspect-video rounded-2xl overflow-hidden" style={{ background: '#000' }}>
-        <iframe
-          ref={iframeRef}
-          key={videoId}
-          src={embedUrl!}
-          allow="autoplay; encrypted-media"
-          allowFullScreen
-          className="w-full h-full"
-          title="YouTube player"
-        />
-      </div>
+      <iframe
+        ref={iframeRef}
+        key={videoId}
+        src={embedUrl!}
+        allow="autoplay; encrypted-media"
+        style={{ display: 'none', width: 0, height: 0, position: 'absolute', border: 'none' }}
+        title="YouTube audio"
+      />
     );
   }
 
-  // ── Audio mode: native <audio> element ────────────────────────────────────
-  // Unlike the YouTube iframe, a native page-level <audio> element makes Chrome
-  // treat THIS page as the audio owner, so:
-  //   • Android lock screen shows [⏮][⏸][⏭] (our Media Session) not YouTube's
-  //   • Hardware media keys (keyboard / Bluetooth) forward to our handlers
-  //   • Audio continues playing when the Android screen locks (no iframe throttle)
-  // audioUrl is null while the proxy URL is loading; null → no element rendered.
-  return audioUrl ? (
-    <audio
-      ref={audioRef}
-      key={videoId}
-      src={audioUrl}
-      style={{ display: 'none' }}
-      onCanPlay={handleAudioCanPlay}
-      onPause={handleAudioPause}
-      onTimeUpdate={handleAudioTimeUpdate}
-      onDurationChange={handleAudioDuration}
-      onEnded={handleAudioEnded}
-      onError={handleAudioError}
-    />
-  ) : null;
+  // ── Video mode: visible iframe ────────────────────────────────────────────
+  if (fillContainer) {
+    return (
+      <iframe
+        ref={iframeRef}
+        key={videoId}
+        src={embedUrl!}
+        allow="autoplay; encrypted-media"
+        allowFullScreen
+        className="w-full h-full block"
+        style={{ border: 'none' }}
+        title="YouTube player"
+      />
+    );
+  }
+  return (
+    <div className="w-full aspect-video rounded-2xl overflow-hidden" style={{ background: '#000' }}>
+      <iframe
+        ref={iframeRef}
+        key={videoId}
+        src={embedUrl!}
+        allow="autoplay; encrypted-media"
+        allowFullScreen
+        className="w-full h-full"
+        title="YouTube player"
+      />
+    </div>
+  );
 }
