@@ -413,8 +413,11 @@ export function Muse() {
         )}
       </div>
 
-      {/* ── AI Music Curator panel ──────────────────────────────────────────── */}
-      <div style={{ borderBottom: '1px solid #DCDBD7', flexShrink: 0 }}>
+      {/* ── Unified scroll area: advisor panel + chat + chips ───────────────── */}
+      <div className="flex-1 overflow-y-auto">
+
+      {/* AI Music Curator panel — scrolls with chat */}
+      <div style={{ borderBottom: '1px solid #DCDBD7' }}>
         {/* Compact always-visible row */}
         <div className="flex items-center gap-2 px-4 py-2.5">
           <div
@@ -570,7 +573,7 @@ export function Muse() {
       </div>
 
       {/* Chat thread */}
-      <div className="flex-1 overflow-y-auto px-4 pt-4">
+      <div className="px-4 pt-4">
         {chatMessages.length === 0 && (
           <motion.div
             initial={{ opacity: 0, y: 10 }}
@@ -629,8 +632,6 @@ export function Muse() {
         </AnimatePresence>
 
         {isTyping && <TypingIndicator />}
-        <div ref={bottomRef} />
-        <div className="h-4" />
       </div>
 
       {/* Quick chips */}
@@ -651,8 +652,12 @@ export function Muse() {
         </div>
       )}
 
+      <div ref={bottomRef} />
+      <div className="h-4" />
+      </div>{/* end unified scroll area */}
+
       {/* Input bar */}
-      <div className="px-4 pb-4 pt-2" style={{ borderTop: '1px solid #DCDBD7' }}>
+      <div className="px-4 pb-4 pt-2" style={{ borderTop: '1px solid #DCDBD7', flexShrink: 0 }}>
         <div
           className="flex items-center gap-2 px-3 py-2 rounded-2xl"
           style={{ background: '#FFFFFF', boxShadow: '0 2px 12px rgba(14,14,14,0.08)' }}

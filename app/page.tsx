@@ -434,24 +434,15 @@ export default function HomePage() {
             <LibraryScreen />
           </div>
 
-          {/* ── Center column: Player (auto height) + Queue (fills rest) ── */}
+          {/* ── Center column: Player + Queue — one unified scroll ── */}
+          {/* gridTemplateRows removed: the player height was squeezing the queue   */}
+          {/* in video mode. Both now render at natural height and scroll together. */}
           <div
-            className="overflow-hidden"
-            style={{
-              flex: 3,
-              minWidth: 0,
-              display: 'grid',
-              // Player always sizes to its natural content height — no scroll.
-              // Queue row gets whatever remains.
-              gridTemplateRows: 'auto 1fr',
-            }}
+            className="overflow-y-auto"
+            style={{ flex: 3, minWidth: 0 }}
           >
-            {/* Player — clips content, never scrolls */}
-            <div className="overflow-hidden" style={{ borderBottom: '1px solid #DCDBD7' }}>
-              <NowPlaying desktopMode onYTReady={onYTReady} />
-            </div>
-            {/* Queue — scrollable */}
-            <div className="overflow-y-auto">
+            <NowPlaying desktopMode onYTReady={onYTReady} />
+            <div style={{ borderTop: '1px solid #DCDBD7' }}>
               <Queue desktopMode />
             </div>
           </div>
