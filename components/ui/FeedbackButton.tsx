@@ -64,14 +64,16 @@ export function FeedbackButton({
   return (
     <motion.button
       ref={btnRef}
+      type="button"
       onClick={onClick}
       onPointerDown={addRipple}
       className={`feedback-btn ${className}`}
-      style={{ ...style, position: 'relative', overflow: 'hidden' }}
+      style={{ ...style, position: 'relative', overflow: 'hidden', cursor: 'pointer' }}
       title={title}
       disabled={disabled}
+      whileHover={disabled ? undefined : { scale: 1.07 }}
       whileTap={{ scale: tapScale, x: tapX }}
-      transition={{ type: 'spring', stiffness: 520, damping: 22 }}
+      transition={{ type: 'spring', stiffness: 380, damping: 30 }}
     >
       {ripples.map(r => (
         <span

@@ -172,7 +172,6 @@ export function NowPlaying({ desktopMode = false, onYTReady }: { desktopMode?: b
         <FeedbackButton
           onClick={playPrev}
           style={{ color: light ? '#131313' : '#FFFFFF' }}
-          tapX={-4}
           rippleColor={ripple}
         >
           <SkipBack size={26} />
@@ -200,7 +199,6 @@ export function NowPlaying({ desktopMode = false, onYTReady }: { desktopMode?: b
         <FeedbackButton
           onClick={skipCurrent}
           style={{ color: light ? '#131313' : '#FFFFFF' }}
-          tapX={4}
           rippleColor={ripple}
         >
           <SkipForward size={26} />
@@ -216,38 +214,47 @@ export function NowPlaying({ desktopMode = false, onYTReady }: { desktopMode?: b
     );
   };
 
-  const ShuffleVolumeRow = ({ light = false }: { light?: boolean }) => (
-    <div className="flex items-center gap-2 w-full">
-      <button
-        onClick={() => setIsShuffled(!isShuffled)}
-        title="Shuffle"
-        style={{ color: isShuffled ? '#FF4D3D' : (light ? '#6B6B6B' : '#9A9A9A'), flexShrink: 0 }}
-      >
-        <Shuffle size={18} />
-      </button>
-      <button
-        onClick={() => setIsMuted(!isMuted)}
-        style={{ color: light ? '#6B6B6B' : '#9A9A9A', flexShrink: 0 }}
-      >
-        {isMuted
-          ? <VolumeX size={16} />
-          : volume < 0.3 ? <Volume1 size={16} /> : <Volume2 size={16} />}
-      </button>
-      <input
-        type="range" min={0} max={1} step={0.05} value={isMuted ? 0 : volume}
-        onChange={(e) => { setVolume(parseFloat(e.target.value)); setIsMuted(false); }}
-        className="flex-1 h-1 rounded-full appearance-none cursor-pointer"
-        style={{ accentColor: '#FF4D3D' }}
-      />
-      <button
-        onClick={handleStartRadio}
-        title="Start similar radio"
-        style={{ color: light ? '#6B6B6B' : '#9A9A9A', flexShrink: 0 }}
-      >
-        <Sparkles size={18} />
-      </button>
-    </div>
-  );
+  const ShuffleVolumeRow = ({ light = false }: { light?: boolean }) => {
+    const volPct = (isMuted ? 0 : volume) * 100;
+    const volTrackStyle: React.CSSProperties = {
+      background: light
+        ? `linear-gradient(to right, #FF4D3D ${volPct}%, rgba(14,14,14,0.10) ${volPct}%)`
+        : `linear-gradient(to right, #FF4D3D ${volPct}%, rgba(255,255,255,0.15) ${volPct}%)`,
+      accentColor: '#FF4D3D',
+    };
+    return (
+      <div className="flex items-center gap-2 w-full">
+        <button
+          onClick={() => setIsShuffled(!isShuffled)}
+          title="Shuffle"
+          style={{ color: isShuffled ? '#FF4D3D' : (light ? '#6B6B6B' : '#9A9A9A'), flexShrink: 0 }}
+        >
+          <Shuffle size={18} />
+        </button>
+        <button
+          onClick={() => setIsMuted(!isMuted)}
+          style={{ color: light ? '#6B6B6B' : '#9A9A9A', flexShrink: 0 }}
+        >
+          {isMuted
+            ? <VolumeX size={16} />
+            : volume < 0.3 ? <Volume1 size={16} /> : <Volume2 size={16} />}
+        </button>
+        <input
+          type="range" min={0} max={1} step={0.05} value={isMuted ? 0 : volume}
+          onChange={(e) => { setVolume(parseFloat(e.target.value)); setIsMuted(false); }}
+          className="flex-1 h-1 rounded-full appearance-none cursor-pointer"
+          style={volTrackStyle}
+        />
+        <button
+          onClick={handleStartRadio}
+          title="Start similar radio"
+          style={{ color: light ? '#6B6B6B' : '#9A9A9A', flexShrink: 0 }}
+        >
+          <Sparkles size={18} />
+        </button>
+      </div>
+    );
+  };
 
   // ── Desktop video mode: explicit 50 vh video, no scroll ─────────────────
   // NOTE: outer div intentionally has NO h-full — the player grid row uses

@@ -91,10 +91,15 @@ body {
 
 /* Smooth transitions */
 button, a {
+  cursor: pointer;
   transition: opacity 0.15s ease, transform 0.1s ease;
 }
 button:active {
   transform: scale(0.97);
+}
+/* Hover for plain icon buttons (not FeedbackButton — it uses Framer Motion) */
+button:not(.feedback-btn):not([disabled]):hover {
+  opacity: 0.65;
 }
 
 /* ── FeedbackButton ripple ── */
@@ -108,5 +113,55 @@ button:active {
   pointer-events: none;
   animation: btn-ripple 0.70s ease-out forwards;
 }
-/* Let Framer Motion own the transform; prevent global button:active fighting it */
-.feedback-btn:active { transform: none; }
+/* Let Framer Motion own the transform; prevent global button:active/hover fighting it */
+.feedback-btn:active  { transform: none; }
+.feedback-btn:hover   { opacity: 1; }
+
+/* ── Range input — custom track + thumb ────────────────────────────────── */
+/* The track background comes from the inline `style` gradient on the input  */
+/* itself (see seek bar / volume slider). The pseudo-elements here add a     */
+/* visible thumb and ensure the track is transparent so the gradient shows.  */
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 100%;
+  border-radius: 999px;
+  background: transparent;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  margin-top: -4.5px; /* center 13 px thumb on 4 px (h-1) track */
+  border-radius: 50%;
+  background: #FF4D3D;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+  transition: box-shadow 0.15s ease, transform 0.12s ease;
+}
+input[type="range"]::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 0 5px rgba(255,77,61,0.18);
+}
+input[type="range"]::-webkit-slider-thumb:active {
+  transform: scale(0.88);
+  box-shadow: 0 0 0 7px rgba(255,77,61,0.12);
+}
+input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: transparent;
+}
+input[type="range"]::-moz-range-thumb {
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #FF4D3D;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+}
+input[type="range"]::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px 0 0 999px;
+  background: #FF4D3D;
+}
