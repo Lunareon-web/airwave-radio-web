@@ -120,8 +120,49 @@ function MessageTrackList({
   onSaveToPlaylist: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const { addToQueue, setAddToPlaylistTrack } = useAppStore();
-  const visible = expanded ? tracks : tracks.slice(0, 5);
+  const { addToQueue, setAddToPlaylistTrack, settings } = useAppStore();
+  // Local copy enriched with thumbnails fetched after render
+  const [enrichedTracks, setEnrichedTracks] = useState<CuratedTrack[]>(tracks);
+  const resolvedRef = useRef(false);
+
+  // Lazily resolve album art for the first 5 visible tracks.
+  // Results are cached server-side so repeat fetches are nearly free.
+  useEffect(() => {
+    if (resolvedRef.current) return;
+    resolvedRef.current = true;
+
+    const resolve = async () => {
+      const updated = [...tracks];
+      let changed = false;
+      for (let i = 0; i < Math.min(5, tracks.length); i++) {
+        if (tracks[i].coverArt || tracks[i].videoId) continue;
+        try {
+          const q = encodeURIComponent(
+            tracks[i].search_term || `${tracks[i].artist} ${tracks[i].track}`
+          );
+          const headers: Record<string, string> = {};
+          if (settings.youtubeKey) headers['X-YouTube-Key'] = settings.youtubeKey;
+          const r = await fetch(`/api/youtube/search?q=${q}`, { headers });
+          if (r.ok) {
+            const d = await r.json() as { videoId?: string; thumbnail?: string };
+            if (d.thumbnail) {
+              updated[i] = { ...updated[i], coverArt: d.thumbnail, videoId: d.videoId };
+              changed = true;
+              setEnrichedTracks([...updated]);
+            }
+          }
+          // Throttle to avoid flooding the API / quota
+          await new Promise<void>((res) => setTimeout(res, 400));
+        } catch { /* ignore */ }
+      }
+      if (changed) setEnrichedTracks(updated);
+    };
+
+    resolve();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const visible = expanded ? enrichedTracks : enrichedTracks.slice(0, 5);
 
   return (
     <div className="mt-3">
@@ -165,9 +206,9 @@ function MessageTrackList({
           onAdd={() => addToQueue({ ...track })}
           onPlay={() => {
             const store = useAppStore.getState();
-            store.setCuratedTracks(tracks);
+            store.setCuratedTracks(enrichedTracks);
             store.setActiveSource('curated');
-            store.setActiveIndex(expanded ? i : i);
+            store.setActiveIndex(i);
             store.setIsPlaying(true);
             store.setActiveScreen('radio');
           }}
@@ -176,7 +217,7 @@ function MessageTrackList({
       ))}
 
       {/* Expand / collapse toggle */}
-      {tracks.length > 5 && (
+      {enrichedTracks.length > 5 && (
         <button
           onClick={() => setExpanded((v) => !v)}
           className="w-full flex items-center justify-center gap-1.5 py-2 text-xs font-semibold rounded-xl mt-1 transition-opacity hover:opacity-70"
@@ -185,7 +226,7 @@ function MessageTrackList({
           {expanded ? (
             <><ChevronUp size={12} /> Show less</>
           ) : (
-            <><ChevronDown size={12} /> +{tracks.length - 5} more</>
+            <><ChevronDown size={12} /> +{enrichedTracks.length - 5} more</>
           )}
         </button>
       )}
@@ -330,10 +371,32 @@ export function Muse() {
       if (settings.geminiKey) headers['X-Gemini-Key'] = settings.geminiKey;
 
       const existingTitles = curatedTracks.map((t) => `${t.artist} - ${t.track}`);
+
+      const body: Record<string, unknown> = {
+        prompt: trimmed,
+        count: 20,
+        exclude: existingTitles.slice(0, 10),
+      };
+      // Include currently playing track and advisor analysis as context so
+      // Gemini can generate more fitting, stylistically consistent tracks.
+      const ct = useAppStore.getState().getCurrentTrack();
+      if (ct) body.currentTrack = { artist: ct.artist, track: ct.track };
+      const ad = useAppStore.getState().advisorData;
+      if (ad?.bubbles) {
+        const genres = ad.bubbles.filter((b) => b.type === 'genre').map((b) => b.value);
+        const moods  = ad.bubbles.filter((b) => b.type === 'mood').map((b) => b.value);
+        if (genres.length || moods.length) {
+          body.advisorContext = [
+            genres.length ? `Genres: ${genres.join(', ')}` : '',
+            moods.length  ? `Moods: ${moods.join(', ')}` : '',
+          ].filter(Boolean).join('. ');
+        }
+      }
+
       const res = await fetch('/api/playlist/generate', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ prompt: trimmed, count: 20, exclude: existingTitles.slice(0, 10) }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
 

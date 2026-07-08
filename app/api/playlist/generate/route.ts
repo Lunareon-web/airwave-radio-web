@@ -2,13 +2,40 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(req: NextRequest) {
   try {
-    const { prompt, count = 20, exclude = [] } = await req.json();
+    const { prompt, count = 20, exclude = [], currentTrack, advisorContext } = await req.json();
     const geminiKey = req.headers.get('X-Gemini-Key') || process.env.GEMINI_API_KEY;
     if (!geminiKey) {
       return NextResponse.json({ error: 'Gemini API key required' }, { status: 400 });
     }
-    const excludeStr = exclude.length > 0 ? `Exclude these tracks: ${exclude.join(', ')}. ` : '';
-    const systemPrompt = `Generate a playlist of ${count} songs for: "${prompt}". ${excludeStr}Return ONLY a valid JSON array with no markdown, no code fences, no explanation. Format: [{"artist":"Artist Name","track":"Track Name","search_term":"Artist Name Track Name official audio"}]. Make sure artists and tracks are real and well-known.`;
+
+    const contextLines: string[] = [];
+    if (currentTrack?.artist && currentTrack?.track) {
+      contextLines.push(`Currently playing: "${currentTrack.track}" by ${currentTrack.artist}`);
+    }
+    if (advisorContext) {
+      contextLines.push(`Musical context: ${advisorContext}`);
+    }
+    const contextBlock = contextLines.length > 0
+      ? `\nContext:\n${contextLines.join('\n')}\n`
+      : '';
+    const excludeStr = exclude.length > 0
+      ? `\nAlready in playlist — do NOT repeat: ${exclude.join(', ')}.`
+      : '';
+
+    const systemPrompt = `You are a professional music curator with encyclopedic knowledge across all genres, eras, and styles.
+
+Task: Generate exactly ${count} tracks that authentically match this request: "${prompt}".
+${contextBlock}
+Rules:
+- Every recommendation must be a REAL, VERIFIABLE song by a REAL artist
+- Prioritize quality and fit over popularity — include hidden gems and deep cuts alongside classics
+- Keep mood, energy, and style consistent throughout the playlist
+- Do NOT repeat the same artist more than twice unless specifically requested
+- Use the context above to make recommendations that genuinely complement what the user is already listening to
+${excludeStr}
+
+Return ONLY a JSON array, no markdown, no commentary:
+[{"artist":"Exact Artist Name","track":"Exact Track Title","search_term":"Artist Name Track Title official audio"}]`;
 
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,

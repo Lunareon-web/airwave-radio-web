@@ -48,6 +48,9 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   // After a manual seek, ignore infoDelivery currentTime updates for 800 ms so the
   // pre-seek position that YouTube sends before processing seekTo doesn't snap the slider back.
   const seekBlockUntilRef = useRef(0);
+  // Web Worker for the progress timer — less throttled than main-thread setInterval
+  // when the browser tab is hidden/minimized.
+  const workerRef = useRef<Worker | null>(null);
 
   const {
     activeSource, activeIndex, isPlaying, volume, isMuted,
@@ -180,36 +183,56 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   }, [handleMessage]);
 
   // ── Background recovery ────────────────────────────────────────────────────
-  // When the OS window is not in focus Chrome sets document.hidden=true and
-  // throttles / freezes the background tab including our iframe.  Re-send
-  // playVideo when the tab becomes visible again.
+  // When the OS window / tab is hidden Chrome throttles JS timers AND may
+  // suspend the iframe, preventing auto-advance.  On becoming visible again:
+  //   1. If wall-clock says the track should have ended → call playNext() now
+  //      (the throttled timer missed its window while hidden).
+  //   2. Otherwise → re-send playVideo (covers the "iframe was paused" case).
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.hidden) return;
       const store = useAppStore.getState();
       if (!store.isPlaying || !store.getCurrentTrack()?.videoId) return;
+
+      const { time, ms } = lastYtRef.current;
+      if (ms) {
+        const staleSec = (Date.now() - ms) / 1000;
+        const estimated = time + staleSec;
+        const dur = store.duration;
+        // Hidden for long enough that we're past the end — advance immediately.
+        if (staleSec > 3 && dur > 0 && estimated >= dur - 1 && !nearEndFiredRef.current) {
+          nearEndFiredRef.current = true;
+          store.playNext();
+          return;
+        }
+      }
+
       sendCommand('playVideo');
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [sendCommand]);
 
-  // ── Local timer ───────────────────────────────────────────────────────────
+  // ── Progress timer ────────────────────────────────────────────────────────
   // Interpolates currentTime every 500 ms when playing.
-  // Two safety layers on top of the handleMessage near-end detection:
+  // Uses a Web Worker so Chrome's background-tab throttling (which clamps
+  // main-thread setInterval to ≥1 s) doesn't affect the safety-net checks.
+  // Falls back to setInterval if the Worker fails to load.
   //
-  //   a) Stale-event fallback — fires the 2-second pre-advance when the YT
-  //      iframe hasn't sent an infoDelivery event in ≥ 5 s (throttled/hidden)
-  //      but the extrapolated wall-clock position reaches dur − 2.
-  //
-  //   b) Ultimate safety-net — fires if estimated position is still 5+ s past
-  //      the known duration (belt-and-suspenders for extreme throttling).
+  // Safety layers on top of the handleMessage near-end detection:
+  //   a) Stale-event fallback — fires when YT events stopped ≥5 s ago and
+  //      extrapolated wall-clock position reaches dur − 2.
+  //   b) Ultimate safety-net — 5 s past end, belt-and-suspenders.
   useEffect(() => {
-    if (!isPlaying || !videoId) return;
+    if (!isPlaying || !videoId) {
+      workerRef.current?.postMessage('stop');
+      return;
+    }
+
     const startMs   = Date.now();
     const startTime = useAppStore.getState().currentTime;
 
-    const id = setInterval(() => {
+    const tick = () => {
       const { time, ms } = lastYtRef.current;
       const dur = useAppStore.getState().duration;
       let estimated: number;
@@ -219,14 +242,12 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
         estimated = time + staleSec;
         if (staleSec >= 1.2) setCurrentTime(estimated);
 
-        // (a) Stale-event fallback: events stopped flowing but extrapolated
-        //     position says we're at the 2-second pre-advance window.
+        // (a) Stale-event fallback
         if (staleSec >= 5 && dur > 0 && estimated >= dur - 2 && !nearEndFiredRef.current) {
           nearEndFiredRef.current = true;
           useAppStore.getState().playNext();
         }
       } else {
-        // No events ever received — count from track start.
         const elapsed = (Date.now() - startMs) / 1000;
         estimated = startTime + elapsed;
         setCurrentTime(estimated);
@@ -237,20 +258,42 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
         }
       }
 
-      // (b) Ultimate safety-net: still past end despite (a) — advance anyway.
+      // (b) Ultimate safety-net
       if (dur > 0 && estimated > dur + 5 && !nearEndFiredRef.current) {
         nearEndFiredRef.current = true;
         useAppStore.getState().playNext();
       }
 
-      // Duration never received at all (iframe fully throttled for 12 min).
       if (dur === 0 && Date.now() - startMs > 12 * 60_000 && !nearEndFiredRef.current) {
         nearEndFiredRef.current = true;
         useAppStore.getState().playNext();
       }
-    }, 500);
-    return () => clearInterval(id);
+    };
+
+    let fallbackId: ReturnType<typeof setInterval> | null = null;
+    try {
+      if (!workerRef.current) {
+        workerRef.current = new Worker('/timer-worker.js');
+      }
+      workerRef.current.onmessage = tick;
+      workerRef.current.postMessage('start');
+    } catch {
+      fallbackId = setInterval(tick, 500);
+    }
+
+    return () => {
+      workerRef.current?.postMessage('stop');
+      if (fallbackId !== null) clearInterval(fallbackId);
+    };
   }, [isPlaying, videoId, setCurrentTime]);
+
+  // Terminate worker on unmount
+  useEffect(() => {
+    return () => {
+      workerRef.current?.terminate();
+      workerRef.current = null;
+    };
+  }, []);
 
   // ── Play / Pause ──────────────────────────────────────────────────────────
   useEffect(() => {
