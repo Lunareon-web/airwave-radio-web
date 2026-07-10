@@ -51,6 +51,13 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   // Web Worker for the progress timer — less throttled than main-thread setInterval
   // when the browser tab is hidden/minimized.
   const workerRef = useRef<Worker | null>(null);
+  // Background-safe track switching: keep ONE iframe alive and switch tracks
+  // via loadVideoById instead of remounting (remount = new iframe = autoplay
+  // blocked by Chrome in hidden tabs; loadVideoById reuses the existing player
+  // session that already has the user's autoplay grant).
+  const firstVideoIdRef   = useRef<string | null>(null);
+  const isFirstVideoRef   = useRef(true);
+  const prevPlaybackModeRef = useRef<string>('');
 
   const {
     activeSource, activeIndex, isPlaying, volume, isMuted,
@@ -63,9 +70,22 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   const videoId = currentTrack?.videoId;
   const isVideoMode = settings.playbackMode === 'video';
 
-  // controls=1 in video mode (shows YT UI); 0 in audio mode (hidden iframe, no UI needed).
-  const embedUrl = videoId
-    ? `https://www.youtube.com/embed/${videoId}?enablejsapi=1&autoplay=1` +
+  // Detect playback-mode switch during render. The controls= parameter lives in
+  // the iframe src, so mode changes require a new iframe (and reset the
+  // "first video" state so the new iframe starts fresh via autoplay=1).
+  if (settings.playbackMode !== prevPlaybackModeRef.current) {
+    prevPlaybackModeRef.current = settings.playbackMode;
+    firstVideoIdRef.current     = null;
+    isFirstVideoRef.current     = true;
+  }
+
+  // Build a STABLE iframe src: only the very first video (or the first video
+  // after a mode change) goes into the URL. All subsequent tracks are loaded
+  // via the loadVideoById API command, which keeps the player session alive so
+  // Chrome's background-tab autoplay block never applies to track changes.
+  if (videoId && !firstVideoIdRef.current) firstVideoIdRef.current = videoId;
+  const embedUrl = firstVideoIdRef.current
+    ? `https://www.youtube.com/embed/${firstVideoIdRef.current}?enablejsapi=1&autoplay=1` +
       `&controls=${isVideoMode ? 1 : 0}&rel=0&modestbranding=1` +
       `&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`
     : null;
@@ -381,7 +401,6 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
   }, [activeSource, activeIndex]);
 
   // ── Per-track init ────────────────────────────────────────────────────────
-  // Same YT iframe handshake for both audio and video modes.
   useEffect(() => {
     if (!videoId) return;
     lastYtRef.current       = { time: 0, ms: 0 };
@@ -393,8 +412,25 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
         JSON.stringify({ event: 'listening', id: 1 }), '*'
       );
 
-    // 600 ms: iframe has normally loaded by now; send play + listening handshake.
-    // 2500 ms: retry if ytReadyRef wasn't set (slow connection / throttled).
+    if (!isFirstVideoRef.current) {
+      // ── Subsequent tracks: switch within the live player ──────────────────
+      // loadVideoById reuses the existing player session. Because the player
+      // was already playing (it has the user's autoplay grant), this works
+      // even when the browser tab is in the background / minimised.
+      const t1 = setTimeout(() => {
+        sendCommand('loadVideoById', [{ videoId, startSeconds: 0 }]);
+        sendCommand('setVolume', [isMuted ? 0 : Math.round(volume * 100)]);
+        sendListening();
+      }, 100);
+      // Retry if the player hasn't reported playing after 1.5 s
+      const t2 = setTimeout(() => {
+        if (!ytReadyRef.current) sendCommand('loadVideoById', [{ videoId, startSeconds: 0 }]);
+      }, 1500);
+      return () => { clearTimeout(t1); clearTimeout(t2); };
+    }
+
+    // ── First video: iframe is loading for the first time ─────────────────
+    isFirstVideoRef.current = false;
     const t1 = setTimeout(() => {
       sendCommand('playVideo');
       sendCommand('setVolume', [isMuted ? 0 : Math.round(volume * 100)]);
@@ -428,7 +464,7 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
     return (
       <iframe
         ref={iframeRef}
-        key={videoId}
+        key={settings.playbackMode}
         src={embedUrl!}
         allow="autoplay; encrypted-media"
         style={{
@@ -452,7 +488,7 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
     return (
       <iframe
         ref={iframeRef}
-        key={videoId}
+        key={settings.playbackMode}
         src={embedUrl!}
         allow="autoplay; encrypted-media"
         allowFullScreen
@@ -466,7 +502,7 @@ export function YTPlayer({ onReady, fillContainer = false }: YTPlayerProps) {
     <div className="w-full aspect-video rounded-2xl overflow-hidden" style={{ background: '#000' }}>
       <iframe
         ref={iframeRef}
-        key={videoId}
+        key={settings.playbackMode}
         src={embedUrl!}
         allow="autoplay; encrypted-media"
         allowFullScreen
